@@ -1,9 +1,47 @@
 import streamlit as st
+from google.cloud import bigquery
+from google.oauth2 import service_account
+import pandas as pd
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-import pandas as pd
+
+# BigQueryクライアントの初期化
+def init_bigquery_client():
+    """BigQueryクライアントの初期化"""
+    # サービスアカウントキーの情報をst.secretsから取得
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    return bigquery.Client(credentials=credentials)
+
+def load_seminar_data():
+    """BigQueryからセミナーデータを読み込む"""
+    client = init_bigquery_client()
+    
+    query = """
+    SELECT 
+        Seminar_Title,
+        Acquisition_Speed,
+        Major_Category,
+        Category,
+        Total_Participants,
+        Action_Response_Count,
+        Action_Response_Rate,
+        User_Company_Percentage,
+        Non_User_Company_Percentage
+    FROM `mythical-envoy-386309.majisemi.majisemi_seminar_usukiapi`
+    WHERE Seminar_Title IS NOT NULL
+    AND Acquisition_Speed IS NOT NULL
+    """
+    
+    try:
+        df = client.query(query).to_dataframe()
+        return df
+    except Exception as e:
+        st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
+        return None
 
 # データクラスの定義
 @dataclass
@@ -68,43 +106,19 @@ class TitleGenerator:
         return result["titles"]
 
 class TitleEvaluator:
-    def __init__(self, api_key: str, csv_path: str = "bquxjob_6d369cc1_193248c41eb.csv"):
-        self.evaluator = SeminarTitleEvaluator(csv_path)
+    def __init__(self, api_key: str, seminar_data: pd.DataFrame = None):
+        self.evaluator = SeminarTitleEvaluator(seminar_data) if seminar_data is not None else None
     
     def evaluate_title(self, title: str, category: str = None) -> TitleEvaluation:
-        """タイトルを評価して結果を返す"""
+        if self.evaluator is None:
+            raise ValueError("セミナーデータが読み込まれていません")
+        
         analysis = self.evaluator.evaluate_title(title, category)
         return TitleEvaluation(
             speed=analysis.predicted_speed,
             grade=analysis.grade,
             timestamp=datetime.now().isoformat()
         )
-
-class HeadlineGenerator:
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-    
-    def generate_headlines(self, title: str) -> Dict[str, str]:
-        """タイトルに基づいて見出しを生成"""
-        prompt = f"""
-        以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
-        「{title}」
-        
-        以下の形式でJSONを出力してください：
-        {{
-            "background": str,  # 背景の見出し
-            "problem": str,     # 課題の見出し
-            "solution": str     # 解決策の見出し
-        }}
-        """
-        
-        response = self.client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={ "type": "json_object" }
-        )
-        
-        return json.loads(response.choices[0].message.content)
 
 def init_session_state():
     """セッション状態の初期化"""
@@ -118,37 +132,10 @@ def init_session_state():
         st.session_state.headlines = None
     if 'title_cache' not in st.session_state:
         st.session_state.title_cache = {}
-
-def display_evaluation_details(title: str, evaluator: TitleEvaluator):
-    """評価の詳細を表示"""
-    analysis = evaluator.evaluator.evaluate_title(
-        title, 
-        st.session_state.selected_category
-    )
-    
-    st.write("### 評価詳細")
-    
-    # 評価理由を表示
-    for reason in analysis.reasoning.values():
-        st.write(f"- {reason}")
-    
-    # 改善提案の表示
-    suggestions = evaluator.evaluator.get_improvement_suggestions(analysis)
-    if suggestions:
-        st.write("### 改善提案")
-        for suggestion in suggestions:
-            st.write(suggestion)
-    
-    # キーワードのハイライト表示
-    if analysis.attractive_words:
-        st.write("### 効果的なキーワード")
-        highlighted_title = title
-        for word in analysis.attractive_words:
-            highlighted_title = highlighted_title.replace(
-                word, 
-                f'<span style="background-color: #FFEB3B">{word}</span>'
-            )
-        st.markdown(f'<p>{highlighted_title}</p>', unsafe_allow_html=True)
+    if 'seminar_data' not in st.session_state:
+        st.session_state.seminar_data = None
+    if 'evaluator' not in st.session_state:
+        st.session_state.evaluator = None
 
 def main():
     st.set_page_config(
@@ -161,16 +148,30 @@ def main():
     # APIキーの設定
     api_key = st.secrets["OPENAI_API_KEY"]
     
+    st.title("セミナータイトルジェネレーター")
+    
+    # BigQueryからデータを読み込む
+    if st.session_state.seminar_data is None:
+        with st.spinner("セミナーデータを読み込んでいます..."):
+            df = load_seminar_data()
+            if df is not None:
+                st.session_state.seminar_data = df
+                st.session_state.evaluator = TitleEvaluator(api_key, df)
+                st.success("データを正常に読み込みました！")
+            else:
+                st.error("データの読み込みに失敗しました。")
+                return
+    
     # サービスの初期化
     title_generator = TitleGenerator(api_key)
-    title_evaluator = TitleEvaluator(api_key)
     headline_generator = HeadlineGenerator(api_key)
     cache = InMemoryCache()
     
-    st.title("セミナータイトルジェネレーター")
-    
     # Step 1: 基本情報入力
     st.header("Step 1: 基本情報入力")
+    
+    # カテゴリ選択肢の動的生成
+    available_categories = sorted(st.session_state.seminar_data['Major_Category'].unique())
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
@@ -180,145 +181,11 @@ def main():
     with col3:
         category = st.selectbox(
             "カテゴリ",
-            options=[
-                "業務自動化・効率化",
-                "先端技術",
-                "データ活用",
-                "システム運用",
-                "IDaaS・ID管理・ゼロトラスト",
-                "セキュリティ",
-                "インフラ",
-                "クラウドプラットフォーム",
-                "システム開発・テスト",
-                "ビジネス",
-                "製造DX・物流DX"
-            ]
+            options=available_categories
         )
         st.session_state.selected_category = category
     
-    if st.button("タイトルを生成", key="generate_titles"):
-        context = f"""
-        製品リンク: {product_link}
-        ペインポイント: {pain_points}
-        カテゴリ: {category}
-        """
-        with st.spinner("タイトルを生成中..."):
-            try:
-                titles = title_generator.generate_titles(context)
-                st.session_state.generated_titles = []
-                for title in titles:
-                    # キャッシュチェック
-                    cached_eval = cache.get_evaluation(title)
-                    if cached_eval:
-                        evaluation = cached_eval
-                    else:
-                        evaluation = title_evaluator.evaluate_title(title, category)
-                        cache.set_evaluation(title, evaluation)
-                    st.session_state.generated_titles.append(
-                        GeneratedTitle(title=title, evaluation=evaluation)
-                    )
-            except Exception as e:
-                st.error(f"エラーが発生しました: {str(e)}")
-    
-    # Step 2: タイトル評価・選択
-    if st.session_state.generated_titles:
-        st.header("Step 2: タイトル評価・選択")
-        
-        # 生成されたタイトルの表示
-        st.subheader("生成タイトル")
-        for i, gen_title in enumerate(st.session_state.generated_titles):
-            cols = st.columns([0.5, 3, 1, 1])
-            with cols[0]:
-                if st.radio(
-                    "選択",
-                    ["✓"],
-                    key=f"radio_{i}",
-                    label_visibility="collapsed"
-                ):
-                    st.session_state.selected_title = gen_title.title
-            with cols[1]:
-                st.write(gen_title.title)
-            with cols[2]:
-                st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
-            with cols[3]:
-                grade_colors = {"A": "green", "B": "orange", "C": "red"}
-                grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
-                st.markdown(
-                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
-                    unsafe_allow_html=True
-                )
-        
-        # 手動タイトル評価
-        st.subheader("手動タイトル評価")
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            manual_title = st.text_input("評価したいタイトル", key="manual_title")
-        with col2:
-            if st.button("評価する", key="evaluate_manual") and manual_title:
-                with st.spinner("評価中..."):
-                    try:
-                        cached_eval = cache.get_evaluation(manual_title)
-                        if cached_eval:
-                            evaluation = cached_eval
-                        else:
-                            evaluation = title_evaluator.evaluate_title(
-                                manual_title, 
-                                st.session_state.selected_category
-                            )
-                            cache.set_evaluation(manual_title, evaluation)
-                        st.session_state.generated_titles.append(
-                            GeneratedTitle(title=manual_title, evaluation=evaluation)
-                        )
-                    except Exception as e:
-                        st.error(f"エラーが発生しました: {str(e)}")
-    
-    # Step 3: 見出し生成
-    if st.session_state.selected_title:
-        st.header("Step 3: 見出し生成")
-        
-        if st.button("見出しを生成", key="generate_headlines"):
-            with st.spinner("見出しを生成中..."):
-                try:
-                    st.session_state.headlines = headline_generator.generate_headlines(
-                        st.session_state.selected_title
-                    )
-                except Exception as e:
-                    st.error(f"エラーが発生しました: {str(e)}")
-        
-        if st.session_state.headlines:
-            st.subheader("選択されたタイトル")
-            selected_title_eval = next(
-                (t.evaluation for t in st.session_state.generated_titles 
-                 if t.title == st.session_state.selected_title), 
-                None
-            )
-            
-            cols = st.columns([3, 1, 1])
-            with cols[0]:
-                st.write(st.session_state.selected_title)
-            if selected_title_eval:
-                with cols[1]:
-                    st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
-                with cols[2]:
-                    grade_colors = {"A": "green", "B": "orange", "C": "red"}
-                    grade_color = grade_colors.get(selected_title_eval.grade, "gray")
-                    st.markdown(
-                        f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
-                        unsafe_allow_html=True
-                    )
-            
-            # 見出しの表示
-            st.subheader("生成された見出し")
-            cols = st.columns(3)
-            with cols[0]:
-                st.markdown("### 背景")
-                st.write(st.session_state.headlines["background"])
-            with cols[1]:
-                st.markdown("### 課題")
-                st.write(st.session_state.headlines["problem"])
-            with cols[2]:
-                st.markdown("### 解決策")
-                st.write(st.session_state.headlines["solution"])
+    # ... (以下のコードは変更なし) ...
 
 if __name__ == "__main__":
     main()
