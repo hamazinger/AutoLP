@@ -8,6 +8,16 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import json
 from openai import OpenAI
+import requests
+from bs4 import BeautifulSoup
+from trafilatura import fetch_url, extract
+
+@dataclass
+class WebContent:
+    title: str
+    description: str
+    main_content: str
+    error: Optional[str] = None
 
 @dataclass
 class TitleAnalysis:
@@ -32,6 +42,96 @@ class GeneratedTitle:
     title: str
     evaluation: TitleEvaluation
 
+class URLContentExtractor:
+    def __init__(self):
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+    
+    def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
+        """Trafilaturaを使用してコンテンツを抽出（高精度・推奨）"""
+        try:
+            downloaded = fetch_url(url)
+            if downloaded is None:
+                return WebContent(
+                    title="",
+                    description="",
+                    main_content="",
+                    error="URLからのコンテンツ取得に失敗しました"
+                )
+            
+            # メインコンテンツの抽出
+            content = extract(downloaded, include_comments=False, include_tables=False)
+            if content is None:
+                return WebContent(
+                    title="",
+                    description="",
+                    main_content="",
+                    error="コンテンツの抽出に失敗しました"
+                )
+            
+            # Beautiful Soupでメタデータを取得
+            soup = BeautifulSoup(downloaded, 'html.parser')
+            title = soup.title.string if soup.title else ""
+            meta_desc = soup.find('meta', {'name': 'description'})
+            description = meta_desc['content'] if meta_desc else ""
+            
+            return WebContent(
+                title=title,
+                description=description,
+                main_content=content
+            )
+            
+        except Exception as e:
+            return WebContent(
+                title="",
+                description="",
+                main_content="",
+                error=f"エラーが発生しました: {str(e)}"
+            )
+    
+    def extract_with_beautifulsoup(self, url: str) -> Optional[WebContent]:
+        """Beautiful Soupを使用してコンテンツを抽出（軽量・シンプル）"""
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # メタデータの取得
+            title = soup.title.string if soup.title else ""
+            meta_desc = soup.find('meta', {'name': 'description'})
+            description = meta_desc['content'] if meta_desc else ""
+            
+            # メインコンテンツの抽出（シンプルな実装）
+            # 不要なタグの削除
+            for tag in soup(['script', 'style', 'iframe', 'nav', 'footer']):
+                tag.decompose()
+            
+            # 主要なコンテンツエリアの特定（サイトに応じて調整が必要）
+            main_content = ""
+            main_tags = soup.find_all(['article', 'main', 'div'], class_=['content', 'main', 'article'])
+            
+            if main_tags:
+                main_content = main_tags[0].get_text(strip=True)
+            else:
+                # 主要タグが見つからない場合は本文全体を取得
+                main_content = soup.body.get_text(strip=True) if soup.body else ""
+            
+            return WebContent(
+                title=title,
+                description=description,
+                main_content=main_content
+            )
+            
+        except Exception as e:
+            return WebContent(
+                title="",
+                description="",
+                main_content="",
+                error=f"エラーが発生しました: {str(e)}"
+            )
+
 class SeminarTitleEvaluator:
     def __init__(self, seminar_data: pd.DataFrame):
         """
@@ -40,8 +140,9 @@ class SeminarTitleEvaluator:
         """
         self.df = seminar_data
         self._initialize_analytics()
-    
-    def _initialize_analytics(self):
+
+
+def _initialize_analytics(self):
         """分析に必要なデータを初期化"""
         # 高集客セミナー（2.5以上）からキーワードを抽出
         high_performing = self.df[self.df['Acquisition_Speed'] >= 2.5]
@@ -79,57 +180,6 @@ class SeminarTitleEvaluator:
         # 出現頻度の高いキーワードを返す
         word_counts = pd.Series(words).value_counts()
         return list(word_counts[word_counts >= 2].index)
-
-    def _calculate_base_score(self, title: str) -> float:
-        """基本スコアを計算"""
-        base_score = 1.0
-        
-        # 1. 効果的なキーワードのスコア
-        matching_words = [word for word in self.attractive_words if word in title]
-        keyword_score = len(matching_words) * 0.4
-        base_score += min(keyword_score, 1.2)  # 最大1.2点
-        
-        # 2. タイトルの長さによる調整
-        title_length = len(title)
-        if title_length <= 20:
-            base_score += 0.3
-        elif title_length <= 40:
-            base_score += 0.1
-        elif title_length > 60:
-            base_score -= 0.2
-        
-        # 3. 問題提起の有無
-        if any(indicator in title for indicator in self.problem_indicators):
-            base_score += 0.4
-        
-        # 4. 感嘆符のペナルティ
-        if '!' in title or '！' in title:
-            base_score -= 0.3
-            
-        return base_score
-
-    def _generate_advice(self, matching_words: List[str], has_problem: bool, 
-                        title_length: int, has_exclamation: bool, 
-                        category_score: float) -> str:
-        """改善アドバイスを生成"""
-        advice_points = []
-        
-        if not matching_words:
-            advice_points.append("・効果的なキーワードを追加することで集客効果が高まる可能性があります")
-        
-        if not has_problem:
-            advice_points.append("・具体的な課題や解決方法を含めることで、価値提案がより明確になります")
-        
-        if title_length > 40:
-            advice_points.append("・タイトルを40文字以内に簡潔化することで、理解しやすくなります")
-        
-        if has_exclamation:
-            advice_points.append("・感嘆符は控えめにすることで、より専門的な印象になります")
-        
-        if category_score < 0.2:
-            advice_points.append("・より高い集客が期待できるカテゴリへの変更を検討してください")
-        
-        return "\n".join(advice_points) if advice_points else "特に改善点はありません。"
 
     def evaluate_title(self, title: str, category: str = None) -> TitleAnalysis:
         """タイトルを評価して結果を返す"""
@@ -179,54 +229,61 @@ class SeminarTitleEvaluator:
             reasoning=reasoning
         )
 
-
-def _generate_advice(self, matching_words: List[str], has_problem: bool, 
-                        title_length: int, has_exclamation: bool, 
-                        category_score: float) -> str:
-        """改善アドバイスを生成"""
-        advice_points = []
+    def _calculate_base_score(self, title: str) -> float:
+        """基本スコアを計算"""
+        base_score = 1.0
         
-        if not matching_words:
-            advice_points.append("・効果的なキーワードを追加することで集客効果が高まる可能性があります")
+        # 1. 効果的なキーワードのスコア
+        matching_words = [word for word in self.attractive_words if word in title]
+        keyword_score = len(matching_words) * 0.4
+        base_score += min(keyword_score, 1.2)  # 最大1.2点
         
-        if not has_problem:
-            advice_points.append("・具体的な課題や解決方法を含めることで、価値提案がより明確になります")
+        # 2. タイトルの長さによる調整
+        title_length = len(title)
+        if title_length <= 20:
+            base_score += 0.3
+        elif title_length <= 40:
+            base_score += 0.1
+        elif title_length > 60:
+            base_score -= 0.2
         
-        if title_length > 40:
-            advice_points.append("・タイトルを40文字以内に簡潔化することで、理解しやすくなります")
+        # 3. 問題提起の有無
+        if any(indicator in title for indicator in self.problem_indicators):
+            base_score += 0.4
         
-        if has_exclamation:
-            advice_points.append("・感嘆符は控えめにすることで、より専門的な印象になります")
-        
-        if category_score < 0.2:
-            advice_points.append("・より高い集客が期待できるカテゴリへの変更を検討してください")
-        
-        return "\n".join(advice_points) if advice_points else "特に改善点はありません。"
-
-
-# インメモリキャッシュ
-class InMemoryCache:
-    def __init__(self):
-        if 'title_cache' not in st.session_state:
-            st.session_state.title_cache = {}
-    
-    def get_evaluation(self, title: str) -> Optional[TitleEvaluation]:
-        return st.session_state.title_cache.get(title)
-    
-    def set_evaluation(self, title: str, evaluation: TitleEvaluation):
-        st.session_state.title_cache[title] = evaluation
+        # 4. 感嘆符のペナルティ
+        if '!' in title or '！' in title:
+            base_score -= 0.3
+            
+        return base_score
 
 class TitleGenerator:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
+        self.url_extractor = URLContentExtractor()
     
-    def generate_titles(self, context: str) -> List[str]:
+    def generate_titles(self, context: str, product_url: str = None) -> List[str]:
         """指定されたコンテキストに基づいてタイトルを生成"""
+        
+        # URLが提供された場合、コンテンツを抽出
+        additional_context = ""
+        if product_url:
+            content = self.url_extractor.extract_with_trafilatura(product_url)
+            if content and not content.error:
+                additional_context = f"""
+                製品タイトル: {content.title}
+                製品説明: {content.description}
+                製品詳細: {content.main_content[:1000]}  # 最初の1000文字のみ使用
+                """
+        
+        # プロンプトの作成
         prompt = f"""
         以下の文脈に基づいて、セミナータイトルを3つ生成してください：
         
         コンテキスト：
         {context}
+        
+        {additional_context}
         
         以下の条件を満たすタイトルを生成してください：
         1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
@@ -234,6 +291,7 @@ class TitleGenerator:
         3. タイトルは40文字以内で簡潔にする
         4. 感嘆符（！）は使用しない
         5. セミナーの価値提案が明確である
+        6. 製品の特徴や強みを活かしたタイトルにする
         
         以下の形式でJSONを出力してください：
         {{
@@ -253,21 +311,6 @@ class TitleGenerator:
         
         result = json.loads(response.choices[0].message.content)
         return result["titles"]
-
-class TitleEvaluator:
-    def __init__(self, api_key: str, seminar_data: pd.DataFrame = None):
-        self.evaluator = SeminarTitleEvaluator(seminar_data) if seminar_data is not None else None
-    
-    def evaluate_title(self, title: str, category: str = None) -> TitleEvaluation:
-        if self.evaluator is None:
-            raise ValueError("セミナーデータが読み込まれていません")
-        
-        analysis = self.evaluator.evaluate_title(title, category)
-        return TitleEvaluation(
-            speed=analysis.predicted_speed,
-            grade=analysis.grade,
-            timestamp=datetime.now().isoformat()
-        )
 
 class HeadlineGenerator:
     def __init__(self, api_key: str):
@@ -294,6 +337,18 @@ class HeadlineGenerator:
         )
         
         return json.loads(response.choices[0].message.content)
+
+# インメモリキャッシュ
+class InMemoryCache:
+    def __init__(self):
+        if 'title_cache' not in st.session_state:
+            st.session_state.title_cache = {}
+    
+    def get_evaluation(self, title: str) -> Optional[TitleEvaluation]:
+        return st.session_state.title_cache.get(title)
+    
+    def set_evaluation(self, title: str, evaluation: TitleEvaluation):
+        st.session_state.title_cache[title] = evaluation
 
 def init_bigquery_client():
     """BigQueryクライアントの初期化"""
@@ -343,8 +398,6 @@ def load_seminar_data():
         st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
         return None
 
-
-
 def init_session_state():
     """セッション状態の初期化"""
     if 'generated_titles' not in st.session_state:
@@ -363,6 +416,8 @@ def init_session_state():
         st.session_state.evaluator = None
     if 'available_categories' not in st.session_state:
         st.session_state.available_categories = []
+    if 'extracted_content' not in st.session_state:
+        st.session_state.extracted_content = {}
 
 def display_evaluation_details(title: str, evaluator: TitleEvaluator):
     """評価の詳細を表示"""
@@ -411,7 +466,6 @@ def main():
             df = load_seminar_data()
             if df is not None:
                 try:
-                    # データフレームの処理を try-except で囲む
                     categories = df['Major_Category'].dropna().unique().tolist()
                     st.session_state.available_categories = sorted(categories)
                     st.session_state.seminar_data = df
@@ -434,7 +488,19 @@ def main():
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        product_link = st.text_input("製品リンク")
+        product_url = st.text_input("製品URL")
+        if product_url:
+            with st.spinner("URLからコンテンツを取得中..."):
+                extractor = URLContentExtractor()
+                content = extractor.extract_with_trafilatura(product_url)
+                if content and not content.error:
+                    st.success("製品情報を取得しました")
+                    with st.expander("取得した製品情報"):
+                        st.write("**タイトル:**", content.title)
+                        st.write("**説明:**", content.description)
+                        st.write("**詳細:**", content.main_content[:500] + "...")
+                else:
+                    st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
     with col2:
         pain_points = st.text_area("ペインポイント")
     with col3:
@@ -446,13 +512,12 @@ def main():
     
     if st.button("タイトルを生成", key="generate_titles"):
         context = f"""
-        製品リンク: {product_link}
         ペインポイント: {pain_points}
         カテゴリ: {category}
         """
         with st.spinner("タイトルを生成中..."):
             try:
-                titles = title_generator.generate_titles(context)
+                titles = title_generator.generate_titles(context, product_url)
                 st.session_state.generated_titles = []
                 for title in titles:
                     # キャッシュチェック
