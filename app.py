@@ -157,6 +157,7 @@ class SeminarTitleEvaluator:
         )
 
 
+
 def _generate_advice(self, matching_words: List[str], has_problem: bool, 
                         title_length: int, has_exclamation: bool, 
                         category_score: float) -> str:
@@ -246,8 +247,6 @@ class TitleEvaluator:
             timestamp=datetime.now().isoformat()
         )
 
-
-
 class HeadlineGenerator:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
@@ -303,10 +302,26 @@ def load_seminar_data():
     
     try:
         df = client.query(query).to_dataframe()
+        # デバッグ情報の出力
+        st.write("データフレームの情報:")
+        st.write("カラム一覧:", df.columns.tolist())
+        st.write("データ件数:", len(df))
+        
+        if 'Major_Category' not in df.columns:
+            st.error("Major_Categoryカラムが見つかりません")
+            st.write("利用可能なカラム:", df.columns.tolist())
+            return None
+            
+        # Major_Categoryの欠損値を確認
+        null_categories = df['Major_Category'].isnull().sum()
+        st.write("Major_Categoryの欠損値数:", null_categories)
+        
         return df
     except Exception as e:
         st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
         return None
+
+
 
 def init_session_state():
     """セッション状態の初期化"""
@@ -373,11 +388,16 @@ def main():
         with st.spinner("セミナーデータを読み込んでいます..."):
             df = load_seminar_data()
             if df is not None:
-                st.session_state.seminar_data = df
-                st.session_state.evaluator = TitleEvaluator(api_key, df)
-                # カテゴリの選択肢を更新
-                st.session_state.available_categories = sorted(df['Major_Category'].unique().tolist())
-                st.success("データを正常に読み込みました！")
+                try:
+                    # データフレームの処理を try-except で囲む
+                    categories = df['Major_Category'].dropna().unique().tolist()
+                    st.session_state.available_categories = sorted(categories)
+                    st.session_state.seminar_data = df
+                    st.session_state.evaluator = TitleEvaluator(api_key, df)
+                    st.success("データを正常に読み込みました！")
+                except Exception as e:
+                    st.error(f"カテゴリデータの処理中にエラーが発生しました: {str(e)}")
+                    return
             else:
                 st.error("データの読み込みに失敗しました。")
                 return
