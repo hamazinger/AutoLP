@@ -2,9 +2,8 @@ import streamlit as st
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
-import openai
-from openai import OpenAI
 from dataclasses import dataclass
+import pandas as pd
 
 # データクラスの定義
 @dataclass
@@ -35,11 +34,19 @@ class TitleGenerator:
         self.client = OpenAI(api_key=api_key)
     
     def generate_titles(self, context: str) -> List[str]:
+        """指定されたコンテキストに基づいてタイトルを生成"""
         prompt = f"""
         以下の文脈に基づいて、セミナータイトルを3つ生成してください：
         
         コンテキスト：
         {context}
+        
+        以下の条件を満たすタイトルを生成してください：
+        1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
+        2. 具体的な課題や解決方法を明示する
+        3. タイトルは40文字以内で簡潔にする
+        4. 感嘆符（！）は使用しない
+        5. セミナーの価値提案が明確である
         
         以下の形式でJSONを出力してください：
         {{
@@ -61,31 +68,16 @@ class TitleGenerator:
         return result["titles"]
 
 class TitleEvaluator:
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self, api_key: str, csv_path: str = "bquxjob_6d369cc1_193248c41eb.csv"):
+        self.evaluator = SeminarTitleEvaluator(csv_path)
     
-    def evaluate_title(self, title: str) -> TitleEvaluation:
-        prompt = f"""
-        以下のセミナータイトルを評価してください：
-        「{title}」
-
-        以下の形式でJSONを出力してください：
-        {{
-            "speed": float,  # 1.0-3.0の範囲で集客速度を評価
-            "grade": str     # "A", "B", "C"のいずれか
-        }}
-        """
-        
-        response = self.client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={ "type": "json_object" }
-        )
-        
-        result = json.loads(response.choices[0].message.content)
+    def evaluate_title(self, title: str, category: str = None) -> TitleEvaluation:
+        """タイトルを評価して結果を返す"""
+        analysis = self.evaluator.evaluate_title(title, category)
         return TitleEvaluation(
-            speed=result["speed"],
-            grade=result["grade"]
+            speed=analysis.predicted_speed,
+            grade=analysis.grade,
+            timestamp=datetime.now().isoformat()
         )
 
 class HeadlineGenerator:
@@ -93,6 +85,7 @@ class HeadlineGenerator:
         self.client = OpenAI(api_key=api_key)
     
     def generate_headlines(self, title: str) -> Dict[str, str]:
+        """タイトルに基づいて見出しを生成"""
         prompt = f"""
         以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
         「{title}」
@@ -114,17 +107,54 @@ class HeadlineGenerator:
         return json.loads(response.choices[0].message.content)
 
 def init_session_state():
+    """セッション状態の初期化"""
     if 'generated_titles' not in st.session_state:
         st.session_state.generated_titles = []
     if 'selected_title' not in st.session_state:
         st.session_state.selected_title = None
+    if 'selected_category' not in st.session_state:
+        st.session_state.selected_category = None
     if 'headlines' not in st.session_state:
         st.session_state.headlines = None
     if 'title_cache' not in st.session_state:
         st.session_state.title_cache = {}
 
+def display_evaluation_details(title: str, evaluator: TitleEvaluator):
+    """評価の詳細を表示"""
+    analysis = evaluator.evaluator.evaluate_title(
+        title, 
+        st.session_state.selected_category
+    )
+    
+    st.write("### 評価詳細")
+    
+    # 評価理由を表示
+    for reason in analysis.reasoning.values():
+        st.write(f"- {reason}")
+    
+    # 改善提案の表示
+    suggestions = evaluator.evaluator.get_improvement_suggestions(analysis)
+    if suggestions:
+        st.write("### 改善提案")
+        for suggestion in suggestions:
+            st.write(suggestion)
+    
+    # キーワードのハイライト表示
+    if analysis.attractive_words:
+        st.write("### 効果的なキーワード")
+        highlighted_title = title
+        for word in analysis.attractive_words:
+            highlighted_title = highlighted_title.replace(
+                word, 
+                f'<span style="background-color: #FFEB3B">{word}</span>'
+            )
+        st.markdown(f'<p>{highlighted_title}</p>', unsafe_allow_html=True)
+
 def main():
-    st.set_page_config(page_title="セミナータイトルジェネレーター", layout="wide")
+    st.set_page_config(
+        page_title="セミナータイトルジェネレーター",
+        layout="wide"
+    )
     
     init_session_state()
     
@@ -142,14 +172,36 @@ def main():
     # Step 1: 基本情報入力
     st.header("Step 1: 基本情報入力")
     
-    col1, col2 = st.columns([1, 1])
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         product_link = st.text_input("製品リンク")
     with col2:
         pain_points = st.text_area("ペインポイント")
+    with col3:
+        category = st.selectbox(
+            "カテゴリ",
+            options=[
+                "業務自動化・効率化",
+                "先端技術",
+                "データ活用",
+                "システム運用",
+                "IDaaS・ID管理・ゼロトラスト",
+                "セキュリティ",
+                "インフラ",
+                "クラウドプラットフォーム",
+                "システム開発・テスト",
+                "ビジネス",
+                "製造DX・物流DX"
+            ]
+        )
+        st.session_state.selected_category = category
     
     if st.button("タイトルを生成", key="generate_titles"):
-        context = f"製品リンク: {product_link}\nペインポイント: {pain_points}"
+        context = f"""
+        製品リンク: {product_link}
+        ペインポイント: {pain_points}
+        カテゴリ: {category}
+        """
         with st.spinner("タイトルを生成中..."):
             try:
                 titles = title_generator.generate_titles(context)
@@ -160,7 +212,7 @@ def main():
                     if cached_eval:
                         evaluation = cached_eval
                     else:
-                        evaluation = title_evaluator.evaluate_title(title)
+                        evaluation = title_evaluator.evaluate_title(title, category)
                         cache.set_evaluation(title, evaluation)
                     st.session_state.generated_titles.append(
                         GeneratedTitle(title=title, evaluation=evaluation)
@@ -209,7 +261,10 @@ def main():
                         if cached_eval:
                             evaluation = cached_eval
                         else:
-                            evaluation = title_evaluator.evaluate_title(manual_title)
+                            evaluation = title_evaluator.evaluate_title(
+                                manual_title, 
+                                st.session_state.selected_category
+                            )
                             cache.set_evaluation(manual_title, evaluation)
                         st.session_state.generated_titles.append(
                             GeneratedTitle(title=manual_title, evaluation=evaluation)
@@ -245,6 +300,7 @@ def main():
                 with cols[1]:
                     st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
                 with cols[2]:
+                    grade_colors = {"A": "green", "B": "orange", "C": "red"}
                     grade_color = grade_colors.get(selected_title_eval.grade, "gray")
                     st.markdown(
                         f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
