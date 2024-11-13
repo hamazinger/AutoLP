@@ -1,10 +1,10 @@
 # app.py
 import streamlit as st
 import json
-import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 import openai
+from openai import OpenAI
 import redis
 from dataclasses import dataclass
 
@@ -22,10 +22,9 @@ class GeneratedTitle:
 
 class TitleGenerator:
     def __init__(self, api_key: str):
-        self.client = openai.OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key)
     
-    async def generate_titles(self, context: str) -> List[str]:
-        # タイトル生成のプロンプト
+    def generate_titles(self, context: str) -> List[str]:
         prompt = f"""
         以下の文脈に基づいて、セミナータイトルを3つ生成してください：
         
@@ -42,7 +41,7 @@ class TitleGenerator:
         }}
         """
         
-        response = await self.client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
@@ -53,9 +52,9 @@ class TitleGenerator:
 
 class TitleEvaluator:
     def __init__(self, api_key: str):
-        self.client = openai.OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key)
     
-    async def evaluate_title(self, title: str) -> TitleEvaluation:
+    def evaluate_title(self, title: str) -> TitleEvaluation:
         prompt = f"""
         以下のセミナータイトルを評価してください：
         「{title}」
@@ -67,7 +66,7 @@ class TitleEvaluator:
         }}
         """
         
-        response = await self.client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
@@ -81,9 +80,9 @@ class TitleEvaluator:
 
 class HeadlineGenerator:
     def __init__(self, api_key: str):
-        self.client = openai.OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key)
     
-    async def generate_headlines(self, title: str) -> Dict[str, str]:
+    def generate_headlines(self, title: str) -> Dict[str, str]:
         prompt = f"""
         以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
         「{title}」
@@ -96,7 +95,7 @@ class HeadlineGenerator:
         }}
         """
         
-        response = await self.client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
@@ -133,7 +132,7 @@ def init_session_state():
     if 'headlines' not in st.session_state:
         st.session_state.headlines = None
 
-async def main():
+def main():
     st.set_page_config(page_title="セミナータイトルジェネレーター", layout="wide")
     
     init_session_state()
@@ -162,19 +161,22 @@ async def main():
     if st.button("タイトルを生成", key="generate_titles"):
         context = f"製品リンク: {product_link}\nペインポイント: {pain_points}"
         with st.spinner("タイトルを生成中..."):
-            titles = await title_generator.generate_titles(context)
-            st.session_state.generated_titles = []
-            for title in titles:
-                # キャッシュチェック
-                cached_eval = cache.get_evaluation(title)
-                if cached_eval:
-                    evaluation = cached_eval
-                else:
-                    evaluation = await title_evaluator.evaluate_title(title)
-                    cache.set_evaluation(title, evaluation)
-                st.session_state.generated_titles.append(
-                    GeneratedTitle(title=title, evaluation=evaluation)
-                )
+            try:
+                titles = title_generator.generate_titles(context)
+                st.session_state.generated_titles = []
+                for title in titles:
+                    # キャッシュチェック
+                    cached_eval = cache.get_evaluation(title)
+                    if cached_eval:
+                        evaluation = cached_eval
+                    else:
+                        evaluation = title_evaluator.evaluate_title(title)
+                        cache.set_evaluation(title, evaluation)
+                    st.session_state.generated_titles.append(
+                        GeneratedTitle(title=title, evaluation=evaluation)
+                    )
+            except Exception as e:
+                st.error(f"エラーが発生しました: {str(e)}")
     
     # Step 2: タイトル評価・選択
     if st.session_state.generated_titles:
@@ -205,15 +207,18 @@ async def main():
         with col2:
             if st.button("評価する", key="evaluate_manual"):
                 with st.spinner("評価中..."):
-                    cached_eval = cache.get_evaluation(manual_title)
-                    if cached_eval:
-                        evaluation = cached_eval
-                    else:
-                        evaluation = await title_evaluator.evaluate_title(manual_title)
-                        cache.set_evaluation(manual_title, evaluation)
-                    st.session_state.generated_titles.append(
-                        GeneratedTitle(title=manual_title, evaluation=evaluation)
-                    )
+                    try:
+                        cached_eval = cache.get_evaluation(manual_title)
+                        if cached_eval:
+                            evaluation = cached_eval
+                        else:
+                            evaluation = title_evaluator.evaluate_title(manual_title)
+                            cache.set_evaluation(manual_title, evaluation)
+                        st.session_state.generated_titles.append(
+                            GeneratedTitle(title=manual_title, evaluation=evaluation)
+                        )
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {str(e)}")
     
     # Step 3: 見出し生成
     if st.session_state.selected_title:
@@ -221,9 +226,12 @@ async def main():
         
         if st.button("見出しを生成", key="generate_headlines"):
             with st.spinner("見出しを生成中..."):
-                st.session_state.headlines = await headline_generator.generate_headlines(
-                    st.session_state.selected_title
-                )
+                try:
+                    st.session_state.headlines = headline_generator.generate_headlines(
+                        st.session_state.selected_title
+                    )
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {str(e)}")
         
         if st.session_state.headlines:
             st.subheader("選択されたタイトル")
@@ -243,4 +251,4 @@ async def main():
                 st.write(st.session_state.headlines["solution"])
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
