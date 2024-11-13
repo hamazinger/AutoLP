@@ -1,11 +1,9 @@
-# app.py
 import streamlit as st
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
 import openai
 from openai import OpenAI
-import redis
 from dataclasses import dataclass
 
 # データクラスの定義
@@ -19,6 +17,18 @@ class TitleEvaluation:
 class GeneratedTitle:
     title: str
     evaluation: TitleEvaluation
+
+# インメモリキャッシュ
+class InMemoryCache:
+    def __init__(self):
+        if 'title_cache' not in st.session_state:
+            st.session_state.title_cache = {}
+    
+    def get_evaluation(self, title: str) -> Optional[TitleEvaluation]:
+        return st.session_state.title_cache.get(title)
+    
+    def set_evaluation(self, title: str, evaluation: TitleEvaluation):
+        st.session_state.title_cache[title] = evaluation
 
 class TitleGenerator:
     def __init__(self, api_key: str):
@@ -103,27 +113,6 @@ class HeadlineGenerator:
         
         return json.loads(response.choices[0].message.content)
 
-# キャッシュ管理
-class TitleCache:
-    def __init__(self, redis_url: str):
-        self.redis_client = redis.from_url(redis_url)
-        self.ttl = 60 * 60 * 24 * 7  # 1週間
-    
-    def get_evaluation(self, title: str) -> Optional[TitleEvaluation]:
-        result = self.redis_client.get(f"title_eval:{title}")
-        if result:
-            data = json.loads(result)
-            return TitleEvaluation(**data)
-        return None
-    
-    def set_evaluation(self, title: str, evaluation: TitleEvaluation):
-        self.redis_client.setex(
-            f"title_eval:{title}",
-            self.ttl,
-            json.dumps(evaluation.__dict__)
-        )
-
-# Streamlitアプリケーション
 def init_session_state():
     if 'generated_titles' not in st.session_state:
         st.session_state.generated_titles = []
@@ -131,6 +120,8 @@ def init_session_state():
         st.session_state.selected_title = None
     if 'headlines' not in st.session_state:
         st.session_state.headlines = None
+    if 'title_cache' not in st.session_state:
+        st.session_state.title_cache = {}
 
 def main():
     st.set_page_config(page_title="セミナータイトルジェネレーター", layout="wide")
@@ -139,20 +130,19 @@ def main():
     
     # APIキーの設定
     api_key = st.secrets["OPENAI_API_KEY"]
-    redis_url = st.secrets["REDIS_URL"]
     
     # サービスの初期化
     title_generator = TitleGenerator(api_key)
     title_evaluator = TitleEvaluator(api_key)
     headline_generator = HeadlineGenerator(api_key)
-    cache = TitleCache(redis_url)
+    cache = InMemoryCache()
     
     st.title("セミナータイトルジェネレーター")
     
     # Step 1: 基本情報入力
     st.header("Step 1: 基本情報入力")
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1])
     with col1:
         product_link = st.text_input("製品リンク")
     with col2:
@@ -185,27 +175,34 @@ def main():
         # 生成されたタイトルの表示
         st.subheader("生成タイトル")
         for i, gen_title in enumerate(st.session_state.generated_titles):
-            col1, col2, col3 = st.columns([6, 2, 2])
-            with col1:
+            cols = st.columns([0.5, 3, 1, 1])
+            with cols[0]:
                 if st.radio(
                     "選択",
-                    [gen_title.title],
+                    ["✓"],
                     key=f"radio_{i}",
                     label_visibility="collapsed"
-                ) == gen_title.title:
+                ):
                     st.session_state.selected_title = gen_title.title
-            with col2:
+            with cols[1]:
+                st.write(gen_title.title)
+            with cols[2]:
                 st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
-            with col3:
-                st.metric("評価", gen_title.evaluation.grade)
+            with cols[3]:
+                grade_colors = {"A": "green", "B": "orange", "C": "red"}
+                grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
+                st.markdown(
+                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
+                    unsafe_allow_html=True
+                )
         
         # 手動タイトル評価
         st.subheader("手動タイトル評価")
         col1, col2 = st.columns([4, 1])
         with col1:
-            manual_title = st.text_input("評価したいタイトル")
+            manual_title = st.text_input("評価したいタイトル", key="manual_title")
         with col2:
-            if st.button("評価する", key="evaluate_manual"):
+            if st.button("評価する", key="evaluate_manual") and manual_title:
                 with st.spinner("評価中..."):
                     try:
                         cached_eval = cache.get_evaluation(manual_title)
@@ -235,19 +232,36 @@ def main():
         
         if st.session_state.headlines:
             st.subheader("選択されたタイトル")
-            st.write(st.session_state.selected_title)
+            selected_title_eval = next(
+                (t.evaluation for t in st.session_state.generated_titles 
+                 if t.title == st.session_state.selected_title), 
+                None
+            )
+            
+            cols = st.columns([3, 1, 1])
+            with cols[0]:
+                st.write(st.session_state.selected_title)
+            if selected_title_eval:
+                with cols[1]:
+                    st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
+                with cols[2]:
+                    grade_color = grade_colors.get(selected_title_eval.grade, "gray")
+                    st.markdown(
+                        f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
+                        unsafe_allow_html=True
+                    )
             
             # 見出しの表示
             st.subheader("生成された見出し")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.write("背景")
+            cols = st.columns(3)
+            with cols[0]:
+                st.markdown("### 背景")
                 st.write(st.session_state.headlines["background"])
-            with col2:
-                st.write("課題")
+            with cols[1]:
+                st.markdown("### 課題")
                 st.write(st.session_state.headlines["problem"])
-            with col3:
-                st.write("解決策")
+            with cols[2]:
+                st.markdown("### 解決策")
                 st.write(st.session_state.headlines["solution"])
 
 if __name__ == "__main__":
