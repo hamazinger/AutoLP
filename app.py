@@ -156,7 +156,8 @@ class SeminarTitleEvaluator:
             reasoning=reasoning
         )
 
-    def _generate_advice(self, matching_words: List[str], has_problem: bool, 
+
+def _generate_advice(self, matching_words: List[str], has_problem: bool, 
                         title_length: int, has_exclamation: bool, 
                         category_score: float) -> str:
         """改善アドバイスを生成"""
@@ -245,6 +246,8 @@ class TitleEvaluator:
             timestamp=datetime.now().isoformat()
         )
 
+
+
 class HeadlineGenerator:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
@@ -321,6 +324,8 @@ def init_session_state():
         st.session_state.seminar_data = None
     if 'evaluator' not in st.session_state:
         st.session_state.evaluator = None
+    if 'available_categories' not in st.session_state:
+        st.session_state.available_categories = []
 
 def display_evaluation_details(title: str, evaluator: TitleEvaluator):
     """評価の詳細を表示"""
@@ -370,6 +375,8 @@ def main():
             if df is not None:
                 st.session_state.seminar_data = df
                 st.session_state.evaluator = TitleEvaluator(api_key, df)
+                # カテゴリの選択肢を更新
+                st.session_state.available_categories = sorted(df['Major_Category'].unique().tolist())
                 st.success("データを正常に読み込みました！")
             else:
                 st.error("データの読み込みに失敗しました。")
@@ -383,9 +390,6 @@ def main():
     # Step 1: 基本情報入力
     st.header("Step 1: 基本情報入力")
     
-    # カテゴリ選択肢の動的生成
-    available_categories = sorted(st.session_state.seminar_data['Major_Category'].unique())
-    
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         product_link = st.text_input("製品リンク")
@@ -394,7 +398,7 @@ def main():
     with col3:
         category = st.selectbox(
             "カテゴリ",
-            options=available_categories
+            options=st.session_state.available_categories
         )
         st.session_state.selected_category = category
     
