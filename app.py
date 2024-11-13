@@ -108,6 +108,29 @@ class SeminarTitleEvaluator:
             
         return base_score
 
+    def _generate_advice(self, matching_words: List[str], has_problem: bool, 
+                        title_length: int, has_exclamation: bool, 
+                        category_score: float) -> str:
+        """改善アドバイスを生成"""
+        advice_points = []
+        
+        if not matching_words:
+            advice_points.append("・効果的なキーワードを追加することで集客効果が高まる可能性があります")
+        
+        if not has_problem:
+            advice_points.append("・具体的な課題や解決方法を含めることで、価値提案がより明確になります")
+        
+        if title_length > 40:
+            advice_points.append("・タイトルを40文字以内に簡潔化することで、理解しやすくなります")
+        
+        if has_exclamation:
+            advice_points.append("・感嘆符は控えめにすることで、より専門的な印象になります")
+        
+        if category_score < 0.2:
+            advice_points.append("・より高い集客が期待できるカテゴリへの変更を検討してください")
+        
+        return "\n".join(advice_points) if advice_points else "特に改善点はありません。"
+
     def evaluate_title(self, title: str, category: str = None) -> TitleAnalysis:
         """タイトルを評価して結果を返す"""
         # 基本スコアの計算
@@ -155,7 +178,6 @@ class SeminarTitleEvaluator:
             category_score=category_score,
             reasoning=reasoning
         )
-
 
 
 def _generate_advice(self, matching_words: List[str], has_problem: bool, 
