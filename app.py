@@ -110,30 +110,30 @@ class TitleGenerator:
         openai.api_key = api_key
         self.url_extractor = URLContentExtractor()
         self.default_prompt = """
-        以下の文脈に基づいて、セミナータイトルを3つ生成してください：
+以下の文脈に基づいて、セミナータイトルを3つ生成してください：
 
-        コンテキスト：
-        {context}
+コンテキスト：
+{context}
 
-        {additional_context}
+{additional_context}
 
-        以下の条件を満たすタイトルを生成してください：
-        1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
-        2. 具体的な課題や解決方法を明示する
-        3. タイトルは40文字以内で簡潔にする
-        4. 感嘆符（！）は使用しない
-        5. セミナーの価値提案が明確である
-        6. 製品の特徴や強みを活かしたタイトルにする
+以下の条件を満たすタイトルを生成してください：
+1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
+2. 具体的な課題や解決方法を明示する
+3. タイトルは40文字以内で簡潔にする
+4. 感嘆符（！）は使用しない
+5. セミナーの価値提案が明確である
+6. 製品の特徴や強みを活かしたタイトルにする
 
-        以下の形式でJSONを出力してください：
-        {
-            "titles": [
-                "タイトル1",
-                "タイトル2",
-                "タイトル3"
-            ]
-        }
-        """
+以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
+{{
+    "titles": [
+        "タイトル1",
+        "タイトル2",
+        "タイトル3"
+    ]
+}}
+"""
     
     def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None) -> List[str]:
         """指定されたコンテキストに基づいてタイトルを生成"""
@@ -142,10 +142,10 @@ class TitleGenerator:
             content = self.url_extractor.extract_with_trafilatura(product_url)
             if content and not content.error:
                 additional_context = f"""
-                製品タイトル: {content.title}
-                製品説明: {content.description}
-                製品詳細: {content.main_content[:1000]}
-                """
+製品タイトル: {content.title}
+製品説明: {content.description}
+製品詳細: {content.main_content[:1000]}
+"""
             else:
                 st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
         
@@ -162,7 +162,7 @@ class TitleGenerator:
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7
+                temperature=0  # 温度を0に設定
             )
             
             result_text = response.choices[0].message['content'].strip()
@@ -194,6 +194,8 @@ class TitleGenerator:
                         if titles:
                             return titles[:3]  # 最大3つまで
                         raise ValueError("タイトルを抽出できませんでした")
+                else:
+                    raise ValueError("タイトルを抽出できませんでした")
 
             # 結果の検証
             if not isinstance(result, dict) or "titles" not in result:
@@ -206,7 +208,7 @@ class TitleGenerator:
             return titles
             
         except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}\nAIからの応答:\n{result_text}")
             return []
 
 class SeminarTitleEvaluator:
@@ -335,16 +337,16 @@ class HeadlineGenerator:
     def __init__(self, api_key: str):
         openai.api_key = api_key
         self.default_prompt = """
-        以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
-        「{title}」
+以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
+「{title}」
 
-        以下の形式でJSONを出力してください：
-        {
-            "background": "背景の見出し",
-            "problem": "課題の見出し",
-            "solution": "解決策の見出し"
-        }
-        """
+以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
+{{
+    "background": "背景の見出し",
+    "problem": "課題の見出し",
+    "solution": "解決策の見出し"
+}}
+"""
     
     def generate_headlines(self, title: str, prompt_template: str = None) -> Dict[str, str]:
         """タイトルに基づいて見出しを生成"""
@@ -357,7 +359,7 @@ class HeadlineGenerator:
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7
+                temperature=0  # 温度を0に設定
             )
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
@@ -561,9 +563,9 @@ def main():
     
     if st.button("タイトルを生成", key="generate_titles"):
         context = f"""
-        ペインポイント: {pain_points}
-        カテゴリ: {category}
-        """
+ペインポイント: {pain_points}
+カテゴリ: {category}
+"""
         with st.spinner("タイトルを生成中..."):
             try:
                 titles = title_generator.generate_titles(
