@@ -52,7 +52,8 @@ class TitleEvaluation:
 
 @dataclass
 class GeneratedTitle:
-    title: str
+    main_title: str
+    sub_title: str
     evaluation: TitleEvaluation
 
 class URLContentExtractor:
@@ -109,7 +110,7 @@ class TitleGenerator:
     def __init__(self, api_key: str):
         openai.api_key = api_key
         self.url_extractor = URLContentExtractor()
-        self.default_prompt = """
+        self.fixed_prompt_part = """
 以下の文脈に基づいて、セミナータイトルを3つ生成してください：
 
 コンテキスト：
@@ -117,6 +118,8 @@ class TitleGenerator:
 
 {additional_context}
 
+"""
+        self.user_editable_prompt = """
 以下の条件を満たすタイトルを生成してください：
 1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
 2. 具体的な課題や解決方法を明示する
@@ -128,14 +131,23 @@ class TitleGenerator:
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
 {{
     "titles": [
-        "タイトル1",
-        "タイトル2",
-        "タイトル3"
+        {{
+            "main_title": "メインタイトル1",
+            "sub_title": "サブタイトル1"
+        }},
+        {{
+            "main_title": "メインタイトル2",
+            "sub_title": "サブタイトル2"
+        }},
+        {{
+            "main_title": "メインタイトル3",
+            "sub_title": "サブタイトル3"
+        }}
     ]
 }}
 """
-    
-    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None) -> List[str]:
+
+    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None) -> List[Dict[str, str]]:
         """指定されたコンテキストに基づいてタイトルを生成"""
         additional_context = ""
         if product_url:
@@ -150,10 +162,10 @@ class TitleGenerator:
                 st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
         
         # プロンプトの作成
-        prompt = (prompt_template or self.default_prompt).format(
+        prompt = self.fixed_prompt_part.format(
             context=context,
             additional_context=additional_context
-        )
+        ) + (prompt_template or self.user_editable_prompt)
         
         try:
             response = openai.ChatCompletion.create(
@@ -177,26 +189,10 @@ class TitleGenerator:
                 end_index = result_text.rfind('}') + 1
                 if start_index != -1 and end_index > start_index:
                     json_text = result_text[start_index:end_index]
-                    try:
-                        result = json.loads(json_text)
-                    except json.JSONDecodeError:
-                        # JSONの抽出に失敗した場合、タイトルを直接抽出
-                        titles = []
-                        lines = result_text.split('\n')
-                        for line in lines:
-                            line = line.strip()
-                            # 数字やハイフン、ドットで始まる行を探す
-                            if line and (line[0].isdigit() or line[0] in ['-', '•', '・']):
-                                # 先頭の数字や記号を削除
-                                title = line.lstrip('0123456789.-•・ 」」『』「」')
-                                if title:
-                                    titles.append(title)
-                        if titles:
-                            return titles[:3]  # 最大3つまで
-                        raise ValueError("タイトルを抽出できませんでした")
+                    result = json.loads(json_text)
                 else:
                     raise ValueError("タイトルを抽出できませんでした")
-
+    
             # 結果の検証
             if not isinstance(result, dict) or "titles" not in result:
                 raise ValueError("不正な応答形式です")
@@ -205,8 +201,8 @@ class TitleGenerator:
             if not isinstance(titles, list) or not titles:
                 raise ValueError("タイトルが見つかりません")
             
-            return titles
-            
+            return titles[:3]  # 最大3つまで
+                
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}\nAIからの応答:\n{result_text}")
             return []
@@ -336,10 +332,12 @@ class SeminarTitleEvaluator:
 class HeadlineGenerator:
     def __init__(self, api_key: str):
         openai.api_key = api_key
-        self.default_prompt = """
+        self.fixed_prompt_part = """
 以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
 「{title}」
 
+"""
+        self.user_editable_prompt = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
 {{
     "background": "背景の見出し",
@@ -347,10 +345,10 @@ class HeadlineGenerator:
     "solution": "解決策の見出し"
 }}
 """
-    
+        
     def generate_headlines(self, title: str, prompt_template: str = None) -> Dict[str, str]:
         """タイトルに基づいて見出しを生成"""
-        prompt = (prompt_template or self.default_prompt).format(title=title)
+        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt)
         
         try:
             response = openai.ChatCompletion.create(
@@ -480,9 +478,9 @@ def init_session_state():
     if 'extracted_content' not in st.session_state:
         st.session_state.extracted_content = {}
     if 'title_prompt' not in st.session_state:
-        st.session_state.title_prompt = TitleGenerator("dummy_key").default_prompt
+        st.session_state.title_prompt = TitleGenerator("dummy_key").user_editable_prompt
     if 'headline_prompt' not in st.session_state:
-        st.session_state.headline_prompt = HeadlineGenerator("dummy_key").default_prompt
+        st.session_state.headline_prompt = HeadlineGenerator("dummy_key").user_editable_prompt
 
 def main():
     init_session_state()
@@ -575,18 +573,21 @@ def main():
                 )
                 st.session_state.generated_titles = []
                 for title in titles:
-                    cached_eval = cache.get_evaluation(title)
+                    main_title = title.get("main_title", "")
+                    sub_title = title.get("sub_title", "")
+                    full_title = f"{main_title} - {sub_title}"
+                    cached_eval = cache.get_evaluation(full_title)
                     if cached_eval:
                         evaluation = cached_eval
                     else:
-                        analysis = st.session_state.evaluator.evaluate_title(title, category)
+                        analysis = st.session_state.evaluator.evaluate_title(full_title, category)
                         evaluation = TitleEvaluation(
                             speed=analysis.predicted_speed,
                             grade=analysis.grade
                         )
-                        cache.set_evaluation(title, evaluation)
+                        cache.set_evaluation(full_title, evaluation)
                     st.session_state.generated_titles.append(
-                        GeneratedTitle(title=title, evaluation=evaluation)
+                        GeneratedTitle(main_title=main_title, sub_title=sub_title, evaluation=evaluation)
                     )
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
@@ -606,9 +607,9 @@ def main():
                     key=f"radio_{i}",
                     label_visibility="collapsed"
                 ):
-                    st.session_state.selected_title = gen_title.title
+                    st.session_state.selected_title = f"{gen_title.main_title} - {gen_title.sub_title}"
             with cols[1]:
-                st.write(gen_title.title)
+                st.write(f"**{gen_title.main_title}**\n{gen_title.sub_title}")
             with cols[2]:
                 st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
             with cols[3]:
@@ -623,30 +624,32 @@ def main():
         st.subheader("手動タイトル評価")
         col1, col2 = st.columns([4, 1])
         with col1:
-            manual_title = st.text_input("評価したいタイトル", key="manual_title")
+            manual_main_title = st.text_input("メインタイトル", key="manual_main_title")
+            manual_sub_title = st.text_input("サブタイトル", key="manual_sub_title")
         with col2:
-            if st.button("評価する", key="evaluate_manual") and manual_title:
+            if st.button("評価する", key="evaluate_manual") and manual_main_title:
                 with st.spinner("評価中..."):
                     try:
-                        cached_eval = cache.get_evaluation(manual_title)
+                        full_title = f"{manual_main_title} - {manual_sub_title}"
+                        cached_eval = cache.get_evaluation(full_title)
                         if cached_eval:
                             evaluation = cached_eval
                         else:
                             analysis = st.session_state.evaluator.evaluate_title(
-                                manual_title, 
+                                full_title, 
                                 st.session_state.selected_category
                             )
                             evaluation = TitleEvaluation(
                                 speed=analysis.predicted_speed,
                                 grade=analysis.grade
                             )
-                            cache.set_evaluation(manual_title, evaluation)
+                            cache.set_evaluation(full_title, evaluation)
                         st.session_state.generated_titles.append(
-                            GeneratedTitle(title=manual_title, evaluation=evaluation)
+                            GeneratedTitle(main_title=manual_main_title, sub_title=manual_sub_title, evaluation=evaluation)
                         )
                         
                         # 評価詳細の表示
-                        display_evaluation_details(manual_title, st.session_state.evaluator)
+                        display_evaluation_details(full_title, st.session_state.evaluator)
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
     
@@ -668,7 +671,7 @@ def main():
             st.subheader("選択されたタイトル")
             selected_title_eval = next(
                 (t.evaluation for t in st.session_state.generated_titles 
-                 if t.title == st.session_state.selected_title), 
+                 if f"{t.main_title} - {t.sub_title}" == st.session_state.selected_title), 
                 None
             )
             
@@ -691,13 +694,13 @@ def main():
             cols = st.columns(3)
             with cols[0]:
                 st.markdown("### 背景")
-                st.write(st.session_state.headlines["background"])
+                st.write(st.session_state.headlines.get("background", ""))
             with cols[1]:
                 st.markdown("### 課題")
-                st.write(st.session_state.headlines["problem"])
+                st.write(st.session_state.headlines.get("problem", ""))
             with cols[2]:
                 st.markdown("### 解決策")
-                st.write(st.session_state.headlines["solution"])
+                st.write(st.session_state.headlines.get("solution", ""))
 
 if __name__ == "__main__":
     main()
