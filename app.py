@@ -11,6 +11,7 @@ import openai
 import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
+from trafilatura.settings import use_config
 
 @dataclass
 class WebContent:
@@ -47,15 +48,14 @@ class URLContentExtractor:
         self.headers = {
             'User-Agent': 'Mozilla/5.0'
         }
-        
+        # trafilaturaの設定を初期化
+        self.config = use_config()
+        self.config.set('DEFAULT', 'USE_SIGNAL', 'no')
+    
     def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
         """Trafilaturaを使用してコンテンツを抽出（高精度・推奨）"""
         try:
-            # signalモジュールの使用を無効化
-            import trafilatura
-            trafilatura.settings.use_signal = False
-            
-            downloaded = trafilatura.fetch_url(url)
+            downloaded = fetch_url(url, config=self.config)
             if downloaded is None:
                 return WebContent(
                     title="",
@@ -65,7 +65,7 @@ class URLContentExtractor:
                 )
             
             # メインコンテンツの抽出
-            content = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+            content = extract(downloaded, include_comments=False, include_tables=False, config=self.config)
             if content is None:
                 return WebContent(
                     title="",
@@ -234,6 +234,8 @@ class TitleGenerator:
                 製品説明: {content.description}
                 製品詳細: {content.main_content[:1000]}  # 最初の1000文字のみ使用
                 """
+            else:
+                st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
         
         # プロンプトの作成
         prompt = f"""
@@ -324,8 +326,6 @@ class HeadlineGenerator:
             result = json.loads(json_text)
         
         return result
-
-# 以下、残りのコードはそのまま
 
 # インメモリキャッシュ
 class InMemoryCache:
