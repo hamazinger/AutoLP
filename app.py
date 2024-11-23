@@ -22,6 +22,10 @@ import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
 
+# 新しく追加するライブラリ
+from PyPDF2 import PdfReader
+from docx import Document
+
 @dataclass
 class WebContent:
     title: str
@@ -468,20 +472,11 @@ def load_seminar_data():
     
     try:
         df = client.query(query).to_dataframe()
-        # デバッグ情報の出力
-        # st.write("データフレームの情報:")
-        # st.write("カラム一覧:", df.columns.tolist())
-        # st.write("データ件数:", len(df))
-        
         if 'Major_Category' not in df.columns:
             st.error("Major_Categoryカラムが見つかりません")
             st.write("利用可能なカラム:", df.columns.tolist())
             return None
             
-        # Major_Categoryの欠損値を確認
-        null_categories = df['Major_Category'].isnull().sum()
-        # st.write("Major_Categoryの欠損値数:", null_categories)
-        
         return df
     except Exception as e:
         st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
@@ -607,7 +602,21 @@ def main():
     file_content = ""
     if uploaded_file is not None:
         try:
-            file_content = uploaded_file.getvalue().decode('utf-8')
+            if uploaded_file.type == "text/plain":
+                # テキストファイルとして読み込む
+                file_content = uploaded_file.getvalue().decode('utf-8')
+            elif uploaded_file.type == "application/pdf":
+                # PDFファイルとして読み込む
+                reader = PdfReader(uploaded_file)
+                file_content = ""
+                for page in reader.pages:
+                    file_content += page.extract_text()
+            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                # DOCXファイルとして読み込む
+                document = Document(uploaded_file)
+                file_content = "\n".join([para.text for para in document.paragraphs])
+            else:
+                st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
             st.success("ファイルを正常に読み込みました")
             with st.expander("アップロードされたファイルの内容"):
                 st.write(file_content)
