@@ -280,19 +280,19 @@ class TitleGenerator:
         
         # API呼び出し
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7
+            response = openai.Completion.create(
+                engine="text-davinci-003",
+                prompt=prompt,
+                max_tokens=500,
+                temperature=0.7,
+                n=1,
+                stop=None
             )
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return []
         
-        result_text = response.choices[0].message['content'].strip()
+        result_text = response.choices[0].text.strip()
         # JSON部分を抽出
         try:
             result = json.loads(result_text)
@@ -324,19 +324,19 @@ class HeadlineGenerator:
         """
         # API呼び出し
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7
+            response = openai.Completion.create(
+                engine="text-davinci-003",
+                prompt=prompt,
+                max_tokens=150,
+                temperature=0.7,
+                n=1,
+                stop=None
             )
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return {}
         
-        result_text = response.choices[0].message['content'].strip()
+        result_text = response.choices[0].text.strip()
         # JSON部分を抽出
         try:
             result = json.loads(result_text)
