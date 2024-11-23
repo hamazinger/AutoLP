@@ -418,9 +418,9 @@ def init_session_state():
     if 'extracted_content' not in st.session_state:
         st.session_state.extracted_content = {}
 
-def display_evaluation_details(title: str, evaluator: TitleEvaluator):
+def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
     """評価の詳細を表示"""
-    analysis = evaluator.evaluator.evaluate_title(
+    analysis = evaluator.evaluate_title(
         title, 
         st.session_state.selected_category
     )
@@ -461,21 +461,21 @@ def main():
     
     # BigQueryからデータを読み込む
     if st.session_state.seminar_data is None:
-        with st.spinner("セミナーデータを読み込んでいます..."):
-            df = load_seminar_data()
-            if df is not None:
-                try:
-                    categories = df['Major_Category'].dropna().unique().tolist()
-                    st.session_state.available_categories = sorted(categories)
-                    st.session_state.seminar_data = df
-                    st.session_state.evaluator = TitleEvaluator(api_key, df)
-                    st.success("データを正常に読み込みました！")
-                except Exception as e:
-                    st.error(f"カテゴリデータの処理中にエラーが発生しました: {str(e)}")
-                    return
-            else:
-                st.error("データの読み込みに失敗しました。")
+    with st.spinner("セミナーデータを読み込んでいます..."):
+        df = load_seminar_data()
+        if df is not None:
+            try:
+                categories = df['Major_Category'].dropna().unique().tolist()
+                st.session_state.available_categories = sorted(categories)
+                st.session_state.seminar_data = df
+                st.session_state.evaluator = SeminarTitleEvaluator(df)
+                st.success("データを正常に読み込みました！")
+            except Exception as e:
+                st.error(f"カテゴリデータの処理中にエラーが発生しました: {str(e)}")
                 return
+        else:
+            st.error("データの読み込みに失敗しました。")
+            return
     
     # サービスの初期化
     title_generator = TitleGenerator(api_key)
