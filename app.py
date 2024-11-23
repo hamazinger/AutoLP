@@ -179,6 +179,128 @@ class TitleGenerator:
         
         return result["titles"]
 
+class SeminarTitleEvaluator:
+    def __init__(self, seminar_data: pd.DataFrame):
+        """
+        Parameters:
+        seminar_data: pd.DataFrame - セミナーデータ
+        """
+        self.df = seminar_data
+        self._initialize_analytics()
+
+    def _initialize_analytics(self):
+        """分析に必要なデータを初期化"""
+        # 高集客セミナー（2.5以上）からキーワードを抽出
+        high_performing = self.df[self.df['Acquisition_Speed'] >= 2.5]
+        
+        # 効果的なキーワードの抽出
+        self.attractive_words = self._extract_effective_keywords(high_performing)
+        
+        # カテゴリごとの平均集客速度を計算
+        self.category_speeds = self.df.groupby('Major_Category')['Acquisition_Speed'].mean()
+        
+        # 問題提起を示す表現のリスト
+        self.problem_indicators = [
+            '課題', '問題', 'による', 'ための', '向上', '改善', '解決', '対策',
+            'どうする', 'なぜ', 'どう', '方法', '実現', 'ポイント', '実践',
+            'ベストプラクティス', 'ノウハウ', '事例', '成功'
+        ]
+
+    def _extract_effective_keywords(self, high_performing_df) -> List[str]:
+        """効果的なキーワードを抽出"""
+        words = []
+        for title in high_performing_df['Seminar_Title']:
+            if isinstance(title, str):
+                # 基本的な前処理
+                clean_title = (title.replace('〜', ' ')
+                                  .replace('、', ' ')
+                                  .replace('【', ' ')
+                                  .replace('】', ' ')
+                                  .replace('「', ' ')
+                                  .replace('」', ' '))
+                # キーワードの抽出
+                title_words = [w for w in clean_title.split() 
+                             if len(w) > 1 and not w.isdigit()]
+                words.extend(title_words)
+        
+        # 出現頻度の高いキーワードを返す
+        word_counts = pd.Series(words).value_counts()
+        return list(word_counts[word_counts >= 2].index)
+
+    def evaluate_title(self, title: str, category: str = None) -> TitleAnalysis:
+        """タイトルを評価して結果を返す"""
+        # 基本スコアの計算
+        base_score = self._calculate_base_score(title)
+        
+        # カテゴリによる調整
+        category_score = 0.0
+        if category and category in self.category_speeds:
+            category_avg = self.category_speeds[category]
+            category_score = 0.3 if category_avg > 2.5 else (
+                0.2 if category_avg > 2.0 else 0.1
+            )
+        
+        # 最終スコアの計算（1.0-3.0の範囲に正規化）
+        final_score = min(max(base_score + category_score, 1.0), 3.0)
+        
+        # マッチした効果的なキーワード
+        matching_words = [word for word in self.attractive_words if word in title]
+        
+        # 問題提起の有無
+        has_problem = any(indicator in title for indicator in self.problem_indicators)
+        
+        # 評価理由の作成
+        reasoning = {
+            "keywords": f"効果的なキーワード: {', '.join(matching_words) if matching_words else '該当なし'}",
+            "title_length": f"タイトルの長さ: {len(title)}文字 （{'適切' if len(title) <= 40 else '長い'}）",
+            "problem_indication": f"問題提起: {'あり' if has_problem else 'なし'}",
+            "exclamation": f"感嘆符: {'あり（減点）' if '!' in title or '！' in title else 'なし'}",
+            "category": f"カテゴリ評価: {category if category else '未指定'} (スコア: {category_score:.1f})",
+            "predicted_speed": f"予測される集客速度: {final_score:.1f}"
+        }
+        
+        # グレードの決定
+        grade = 'A' if final_score >= 2.5 else 'B' if final_score >= 1.8 else 'C'
+        
+        return TitleAnalysis(
+            predicted_speed=final_score,
+            grade=grade,
+            attractive_words=matching_words,
+            has_specific_problem=has_problem,
+            has_exclamation='!' in title or '！' in title,
+            title_length=len(title),
+            category_score=category_score,
+            reasoning=reasoning
+        )
+
+    def _calculate_base_score(self, title: str) -> float:
+        """基本スコアを計算"""
+        base_score = 1.0
+        
+        # 1. 効果的なキーワードのスコア
+        matching_words = [word for word in self.attractive_words if word in title]
+        keyword_score = len(matching_words) * 0.4
+        base_score += min(keyword_score, 1.2)  # 最大1.2点
+        
+        # 2. タイトルの長さによる調整
+        title_length = len(title)
+        if title_length <= 20:
+            base_score += 0.3
+        elif title_length <= 40:
+            base_score += 0.1
+        elif title_length > 60:
+            base_score -= 0.2
+        
+        # 3. 問題提起の有無
+        if any(indicator in title for indicator in self.problem_indicators):
+            base_score += 0.4
+        
+        # 4. 感嘆符のペナルティ
+        if '!' in title or '！' in title:
+            base_score -= 0.3
+            
+        return base_score
+
 class HeadlineGenerator:
     def __init__(self, api_key: str):
         openai.api_key = api_key
@@ -222,7 +344,88 @@ class HeadlineGenerator:
         
         return result
 
-[... Rest of the existing classes remain unchanged ...]
+class InMemoryCache:
+    def __init__(self):
+        if 'title_cache' not in st.session_state:
+            st.session_state.title_cache = {}
+    
+    def get_evaluation(self, title: str) -> Optional[TitleEvaluation]:
+        return st.session_state.title_cache.get(title)
+    
+    def set_evaluation(self, title: str, evaluation: TitleEvaluation):
+        st.session_state.title_cache[title] = evaluation
+
+def init_bigquery_client():
+    """BigQueryクライアントの初期化"""
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    return bigquery.Client(credentials=credentials)
+
+def load_seminar_data():
+    """BigQueryからセミナーデータを読み込む"""
+    client = init_bigquery_client()
+    
+    query = """
+    SELECT 
+        Seminar_Title,
+        Acquisition_Speed,
+        Major_Category,
+        Category,
+        Total_Participants,
+        Action_Response_Count,
+        Action_Response_Rate,
+        User_Company_Percentage,
+        Non_User_Company_Percentage
+    FROM `mythical-envoy-386309.majisemi.majisemi_seminar_usukiapi`
+    WHERE Seminar_Title IS NOT NULL
+    AND Acquisition_Speed IS NOT NULL
+    """
+    
+    try:
+        df = client.query(query).to_dataframe()
+        # デバッグ情報の出力
+        st.write("データフレームの情報:")
+        st.write("カラム一覧:", df.columns.tolist())
+        st.write("データ件数:", len(df))
+        
+        if 'Major_Category' not in df.columns:
+            st.error("Major_Categoryカラムが見つかりません")
+            st.write("利用可能なカラム:", df.columns.tolist())
+            return None
+            
+        # Major_Categoryの欠損値を確認
+        null_categories = df['Major_Category'].isnull().sum()
+        st.write("Major_Categoryの欠損値数:", null_categories)
+        
+        return df
+    except Exception as e:
+        st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
+        return None
+
+def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
+    """評価の詳細を表示"""
+    analysis = evaluator.evaluate_title(
+        title, 
+        st.session_state.selected_category
+    )
+    
+    st.write("### 評価詳細")
+    
+    # 評価理由を表示
+    for reason in analysis.reasoning.values():
+        st.write(f"- {reason}")
+    
+    # キーワードのハイライト表示
+    if analysis.attractive_words:
+        st.write("### タイトル中の効果的なキーワード")
+        highlighted_title = title
+        for word in analysis.attractive_words:
+            highlighted_title = highlighted_title.replace(
+                word, 
+                f'<span style="background-color: #FFEB3B">{word}</span>'
+            )
+        st.markdown(f'<p>{highlighted_title}</p>', unsafe_allow_html=True)
 
 def init_session_state():
     """セッション状態の初期化"""
@@ -318,6 +521,14 @@ def main():
             height=400
         )
     
+    # プロンプト編集機能（見出し用）
+    with st.expander("見出し生成プロンプトの編集", expanded=False):
+        st.session_state.headline_prompt = st.text_area(
+            "プロンプトテンプレート",
+            value=st.session_state.headline_prompt,
+            height=400
+        )
+    
     if st.button("タイトルを生成", key="generate_titles"):
         context = f"""
         ペインポイント: {pain_points}
@@ -348,6 +559,64 @@ def main():
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
     
+    # Step 2: タイトル評価・選択
+    if st.session_state.generated_titles:
+        st.header("Step 2: タイトル評価・選択")
+        
+        # 生成されたタイトルの表示
+        st.subheader("生成タイトル")
+        for i, gen_title in enumerate(st.session_state.generated_titles):
+            cols = st.columns([0.5, 3, 1, 1])
+            with cols[0]:
+                if st.radio(
+                    "選択",
+                    ["✓"],
+                    key=f"radio_{i}",
+                    label_visibility="collapsed"
+                ):
+                    st.session_state.selected_title = gen_title.title
+            with cols[1]:
+                st.write(gen_title.title)
+            with cols[2]:
+                st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
+            with cols[3]:
+                grade_colors = {"A": "green", "B": "orange", "C": "red"}
+                grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
+                st.markdown(
+                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
+                    unsafe_allow_html=True
+                )
+        
+        # 手動タイトル評価
+        st.subheader("手動タイトル評価")
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            manual_title = st.text_input("評価したいタイトル", key="manual_title")
+        with col2:
+            if st.button("評価する", key="evaluate_manual") and manual_title:
+                with st.spinner("評価中..."):
+                    try:
+                        cached_eval = cache.get_evaluation(manual_title)
+                        if cached_eval:
+                            evaluation = cached_eval
+                        else:
+                            analysis = st.session_state.evaluator.evaluate_title(
+                                manual_title, 
+                                st.session_state.selected_category
+                            )
+                            evaluation = TitleEvaluation(
+                                speed=analysis.predicted_speed,
+                                grade=analysis.grade
+                            )
+                            cache.set_evaluation(manual_title, evaluation)
+                        st.session_state.generated_titles.append(
+                            GeneratedTitle(title=manual_title, evaluation=evaluation)
+                        )
+                        
+                        # 評価詳細の表示
+                        display_evaluation_details(manual_title, st.session_state.evaluator)
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {str(e)}")
     
     # Step 3: 見出し生成
     if st.session_state.selected_title:
@@ -357,7 +626,8 @@ def main():
             with st.spinner("見出しを生成中..."):
                 try:
                     st.session_state.headlines = headline_generator.generate_headlines(
-                        st.session_state.selected_title
+                        st.session_state.selected_title,
+                        st.session_state.headline_prompt
                     )
                 except Exception as e:
                     st.error(f"エラーが発生しました: {str(e)}")
