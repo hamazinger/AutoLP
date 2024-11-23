@@ -47,11 +47,15 @@ class URLContentExtractor:
         self.headers = {
             'User-Agent': 'Mozilla/5.0'
         }
-    
+        
     def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
         """Trafilaturaを使用してコンテンツを抽出（高精度・推奨）"""
         try:
-            downloaded = fetch_url(url)
+            # signalモジュールの使用を無効化
+            import trafilatura
+            trafilatura.settings.use_signal = False
+            
+            downloaded = trafilatura.fetch_url(url)
             if downloaded is None:
                 return WebContent(
                     title="",
@@ -61,7 +65,7 @@ class URLContentExtractor:
                 )
             
             # メインコンテンツの抽出
-            content = extract(downloaded, include_comments=False, include_tables=False)
+            content = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
             if content is None:
                 return WebContent(
                     title="",
