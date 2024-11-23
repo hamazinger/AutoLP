@@ -164,20 +164,50 @@ class TitleGenerator:
                 ],
                 temperature=0.7
             )
+            
+            result_text = response.choices[0].message['content'].strip()
+            
+            # JSON部分を抽出して整形
+            try:
+                # 最初に直接JSONとしてパースを試みる
+                result = json.loads(result_text)
+            except json.JSONDecodeError:
+                # 失敗した場合、JSONっぽい部分を抽出して再試行
+                start_index = result_text.find('{')
+                end_index = result_text.rfind('}') + 1
+                if start_index != -1 and end_index > start_index:
+                    json_text = result_text[start_index:end_index]
+                    try:
+                        result = json.loads(json_text)
+                    except json.JSONDecodeError:
+                        # JSONの抽出に失敗した場合、タイトルを直接抽出
+                        titles = []
+                        lines = result_text.split('\n')
+                        for line in lines:
+                            line = line.strip()
+                            # 数字やハイフン、ドットで始まる行を探す
+                            if line and (line[0].isdigit() or line[0] in ['-', '•', '・']):
+                                # 先頭の数字や記号を削除
+                                title = line.lstrip('0123456789.-•・ 」」『』「」')
+                                if title:
+                                    titles.append(title)
+                        if titles:
+                            return titles[:3]  # 最大3つまで
+                        raise ValueError("タイトルを抽出できませんでした")
+
+            # 結果の検証
+            if not isinstance(result, dict) or "titles" not in result:
+                raise ValueError("不正な応答形式です")
+            
+            titles = result["titles"]
+            if not isinstance(titles, list) or not titles:
+                raise ValueError("タイトルが見つかりません")
+            
+            return titles
+            
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return []
-        
-        result_text = response.choices[0].message['content'].strip()
-        try:
-            result = json.loads(result_text)
-        except json.JSONDecodeError:
-            start_index = result_text.find('{')
-            end_index = result_text.rfind('}') + 1
-            json_text = result_text[start_index:end_index]
-            result = json.loads(json_text)
-        
-        return result["titles"]
 
 class SeminarTitleEvaluator:
     def __init__(self, seminar_data: pd.DataFrame):
