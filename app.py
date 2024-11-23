@@ -119,6 +119,7 @@ class TitleGenerator:
 {additional_context}
 
 """
+        # ユーザーが編集できるプロンプト部分
         self.user_editable_prompt = """
 以下の条件を満たすタイトルを生成してください：
 1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
@@ -127,7 +128,9 @@ class TitleGenerator:
 4. 感嘆符（！）は使用しない
 5. セミナーの価値提案が明確である
 6. 製品の特徴や強みを活かしたタイトルにする
-
+"""
+        # ユーザーが編集できないプロンプト部分
+        self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
 {{
     "titles": [
@@ -165,7 +168,7 @@ class TitleGenerator:
         prompt = self.fixed_prompt_part.format(
             context=context,
             additional_context=additional_context
-        ) + (prompt_template or self.user_editable_prompt)
+        ) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
         
         try:
             response = openai.ChatCompletion.create(
@@ -599,7 +602,7 @@ def main():
         # 生成されたタイトルの表示
         st.subheader("生成タイトル")
         for i, gen_title in enumerate(st.session_state.generated_titles):
-            cols = st.columns([0.5, 3, 1, 1])
+            cols = st.columns([0.5, 2, 2, 1, 1])
             with cols[0]:
                 if st.radio(
                     "選択",
@@ -609,10 +612,12 @@ def main():
                 ):
                     st.session_state.selected_title = f"{gen_title.main_title} - {gen_title.sub_title}"
             with cols[1]:
-                st.write(f"**{gen_title.main_title}**\n{gen_title.sub_title}")
+                st.write(f"**メインタイトル:** {gen_title.main_title}")
             with cols[2]:
-                st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
+                st.write(f"**サブタイトル:** {gen_title.sub_title}")
             with cols[3]:
+                st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
+            with cols[4]:
                 grade_colors = {"A": "green", "B": "orange", "C": "red"}
                 grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
                 st.markdown(
