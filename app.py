@@ -1,3 +1,6 @@
+import os
+os.environ["TRAFILATURA_USE_SIGNAL"] = "false"
+
 import streamlit as st
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -11,7 +14,6 @@ import openai
 import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
-from trafilatura.settings import use_config
 
 @dataclass
 class WebContent:
@@ -48,14 +50,12 @@ class URLContentExtractor:
         self.headers = {
             'User-Agent': 'Mozilla/5.0'
         }
-        # trafilaturaの設定を初期化
-        self.config = use_config()
-        self.config.set('DEFAULT', 'USE_SIGNAL', 'no')
-    
+        
     def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
         """Trafilaturaを使用してコンテンツを抽出（高精度・推奨）"""
         try:
-            downloaded = fetch_url(url, config=self.config)
+            # Fetch URL content
+            downloaded = fetch_url(url)
             if downloaded is None:
                 return WebContent(
                     title="",
@@ -64,8 +64,13 @@ class URLContentExtractor:
                     error="URLからのコンテンツ取得に失敗しました"
                 )
             
-            # メインコンテンツの抽出
-            content = extract(downloaded, include_comments=False, include_tables=False, config=self.config)
+            # Extract main content with timeout=0 to disable signal usage
+            content = extract(
+                downloaded,
+                include_comments=False,
+                include_tables=False,
+                timeout=0  # Disable timeout to avoid using signal module
+            )
             if content is None:
                 return WebContent(
                     title="",
@@ -85,7 +90,6 @@ class URLContentExtractor:
                 description=description,
                 main_content=content
             )
-            
         except Exception as e:
             return WebContent(
                 title="",
