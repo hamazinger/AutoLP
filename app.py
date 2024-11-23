@@ -348,7 +348,7 @@ def load_seminar_data():
         Action_Response_Rate,
         User_Company_Percentage,
         Non_User_Company_Percentage
-    FROM `your_project.your_dataset.your_table`
+    FROM `mythical-envoy-386309.majisemi.majisemi_seminar_usukiapi`
     WHERE Seminar_Title IS NOT NULL
     AND Acquisition_Speed IS NOT NULL
     """
