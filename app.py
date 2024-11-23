@@ -2,6 +2,13 @@ import os
 os.environ["TRAFILATURA_USE_SIGNAL"] = "false"
 
 import streamlit as st
+
+# Streamlitのページ設定を最初に記述
+st.set_page_config(
+    page_title="セミナータイトルジェネレーター",
+    layout="wide"
+)
+
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import pandas as pd
@@ -448,11 +455,6 @@ def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
         st.markdown(f'<p>{highlighted_title}</p>', unsafe_allow_html=True)
 
 def main():
-    st.set_page_config(
-        page_title="セミナータイトルジェネレーター",
-        layout="wide"
-    )
-    
     init_session_state()
     
     # APIキーの設定
