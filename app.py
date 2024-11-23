@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional
 from datetime import datetime
 import json
-from openai import OpenAI
+import openai
 import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
@@ -209,9 +209,7 @@ class SeminarTitleEvaluator:
             "problem_indication": f"問題提起: {'あり' if has_problem else 'なし'}",
             "exclamation": f"感嘆符: {'あり（減点）' if '!' in title or '！' in title else 'なし'}",
             "category": f"カテゴリ評価: {category if category else '未指定'} (スコア: {category_score:.1f})",
-            "predicted_speed": f"予測される集客速度: {final_score:.1f}",
-            "advice": self._generate_advice(matching_words, has_problem, len(title), 
-                                         '!' in title or '！' in title, category_score)
+            "predicted_speed": f"予測される集客速度: {final_score:.1f}"
         }
         
         # グレードの決定
@@ -258,7 +256,7 @@ class SeminarTitleEvaluator:
 
 class TitleGenerator:
     def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
+        openai.api_key = api_key
         self.url_extractor = URLContentExtractor()
     
     def generate_titles(self, context: str, product_url: str = None) -> List[str]:
@@ -302,18 +300,22 @@ class TitleGenerator:
         }}
         """
         
-        response = self.client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={ "type": "json_object" }
+            messages=[{"role": "user", "content": prompt}]
         )
         
-        result = json.loads(response.choices[0].message.content)
+        result_text = response.choices[0].message.content.strip()
+        # JSON部分を抽出
+        start_index = result_text.find('{')
+        end_index = result_text.rfind('}') + 1
+        json_text = result_text[start_index:end_index]
+        result = json.loads(json_text)
         return result["titles"]
 
 class HeadlineGenerator:
     def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
+        openai.api_key = api_key
     
     def generate_headlines(self, title: str) -> Dict[str, str]:
         """タイトルに基づいて見出しを生成"""
@@ -323,19 +325,24 @@ class HeadlineGenerator:
         
         以下の形式でJSONを出力してください：
         {{
-            "background": str,  # 背景の見出し
-            "problem": str,     # 課題の見出し
-            "solution": str     # 解決策の見出し
+            "background": "背景の見出し",
+            "problem": "課題の見出し",
+            "solution": "解決策の見出し"
         }}
         """
         
-        response = self.client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={ "type": "json_object" }
+            messages=[{"role": "user", "content": prompt}]
         )
         
-        return json.loads(response.choices[0].message.content)
+        result_text = response.choices[0].message.content.strip()
+        # JSON部分を抽出
+        start_index = result_text.find('{')
+        end_index = result_text.rfind('}') + 1
+        json_text = result_text[start_index:end_index]
+        result = json.loads(json_text)
+        return result
 
 # インメモリキャッシュ
 class InMemoryCache:
@@ -524,7 +531,11 @@ def main():
                     if cached_eval:
                         evaluation = cached_eval
                     else:
-                        evaluation = st.session_state.evaluator.evaluate_title(title, category)
+                        analysis = st.session_state.evaluator.evaluate_title(title, category)
+                        evaluation = TitleEvaluation(
+                            speed=analysis.predicted_speed,
+                            grade=analysis.grade
+                        )
                         cache.set_evaluation(title, evaluation)
                     st.session_state.generated_titles.append(
                         GeneratedTitle(title=title, evaluation=evaluation)
@@ -573,9 +584,13 @@ def main():
                         if cached_eval:
                             evaluation = cached_eval
                         else:
-                            evaluation = st.session_state.evaluator.evaluate_title(
+                            analysis = st.session_state.evaluator.evaluate_title(
                                 manual_title, 
                                 st.session_state.selected_category
+                            )
+                            evaluation = TitleEvaluation(
+                                speed=analysis.predicted_speed,
+                                grade=analysis.grade
                             )
                             cache.set_evaluation(manual_title, evaluation)
                         st.session_state.generated_titles.append(
