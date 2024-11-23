@@ -45,7 +45,7 @@ class GeneratedTitle:
 class URLContentExtractor:
     def __init__(self):
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0'
         }
     
     def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
@@ -80,48 +80,6 @@ class URLContentExtractor:
                 title=title,
                 description=description,
                 main_content=content
-            )
-            
-        except Exception as e:
-            return WebContent(
-                title="",
-                description="",
-                main_content="",
-                error=f"エラーが発生しました: {str(e)}"
-            )
-    
-    def extract_with_beautifulsoup(self, url: str) -> Optional[WebContent]:
-        """Beautiful Soupを使用してコンテンツを抽出（軽量・シンプル）"""
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # メタデータの取得
-            title = soup.title.string if soup.title else ""
-            meta_desc = soup.find('meta', {'name': 'description'})
-            description = meta_desc['content'] if meta_desc else ""
-            
-            # メインコンテンツの抽出（シンプルな実装）
-            # 不要なタグの削除
-            for tag in soup(['script', 'style', 'iframe', 'nav', 'footer']):
-                tag.decompose()
-            
-            # 主要なコンテンツエリアの特定（サイトに応じて調整が必要）
-            main_content = ""
-            main_tags = soup.find_all(['article', 'main', 'div'], class_=['content', 'main', 'article'])
-            
-            if main_tags:
-                main_content = main_tags[0].get_text(strip=True)
-            else:
-                # 主要タグが見つからない場合は本文全体を取得
-                main_content = soup.body.get_text(strip=True) if soup.body else ""
-            
-            return WebContent(
-                title=title,
-                description=description,
-                main_content=main_content
             )
             
         except Exception as e:
@@ -276,12 +234,12 @@ class TitleGenerator:
         # プロンプトの作成
         prompt = f"""
         以下の文脈に基づいて、セミナータイトルを3つ生成してください：
-        
+
         コンテキスト：
         {context}
-        
+
         {additional_context}
-        
+
         以下の条件を満たすタイトルを生成してください：
         1. 集客効果の高いキーワード（DX、自動化、セキュリティなど）を適切に含める
         2. 具体的な課題や解決方法を明示する
@@ -289,7 +247,7 @@ class TitleGenerator:
         4. 感嘆符（！）は使用しない
         5. セミナーの価値提案が明確である
         6. 製品の特徴や強みを活かしたタイトルにする
-        
+
         以下の形式でJSONを出力してください：
         {{
             "titles": [
@@ -302,15 +260,21 @@ class TitleGenerator:
         
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
         )
         
-        result_text = response.choices[0].message.content.strip()
+        result_text = response['choices'][0]['message']['content'].strip()
         # JSON部分を抽出
-        start_index = result_text.find('{')
-        end_index = result_text.rfind('}') + 1
-        json_text = result_text[start_index:end_index]
-        result = json.loads(json_text)
+        try:
+            result = json.loads(result_text)
+        except json.JSONDecodeError:
+            # JSONデコードに失敗した場合、レスポンス全体からJSON部分を抽出
+            start_index = result_text.find('{')
+            end_index = result_text.rfind('}') + 1
+            json_text = result_text[start_index:end_index]
+            result = json.loads(json_text)
+        
         return result["titles"]
 
 class HeadlineGenerator:
@@ -322,7 +286,7 @@ class HeadlineGenerator:
         prompt = f"""
         以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
         「{title}」
-        
+
         以下の形式でJSONを出力してください：
         {{
             "background": "背景の見出し",
@@ -333,15 +297,21 @@ class HeadlineGenerator:
         
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
         )
         
-        result_text = response.choices[0].message.content.strip()
+        result_text = response['choices'][0]['message']['content'].strip()
         # JSON部分を抽出
-        start_index = result_text.find('{')
-        end_index = result_text.rfind('}') + 1
-        json_text = result_text[start_index:end_index]
-        result = json.loads(json_text)
+        try:
+            result = json.loads(result_text)
+        except json.JSONDecodeError:
+            # JSONデコードに失敗した場合、レスポンス全体からJSON部分を抽出
+            start_index = result_text.find('{')
+            end_index = result_text.rfind('}') + 1
+            json_text = result_text[start_index:end_index]
+            result = json.loads(json_text)
+        
         return result
 
 # インメモリキャッシュ
@@ -378,7 +348,7 @@ def load_seminar_data():
         Action_Response_Rate,
         User_Company_Percentage,
         Non_User_Company_Percentage
-    FROM `mythical-envoy-386309.majisemi.majisemi_seminar_usukiapi`
+    FROM `your_project.your_dataset.your_table`
     WHERE Seminar_Title IS NOT NULL
     AND Acquisition_Speed IS NOT NULL
     """
@@ -626,16 +596,15 @@ def main():
             cols = st.columns([3, 1, 1])
             with cols[0]:
                 st.write(st.session_state.selected_title)
-            if selected_title_eval:
-                with cols[1]:
-                    st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
-                with cols[2]:
-                    grade_colors = {"A": "green", "B": "orange", "C": "red"}
-                    grade_color = grade_colors.get(selected_title_eval.grade, "gray")
-                    st.markdown(
-                        f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
-                        unsafe_allow_html=True
-                    )
+            with cols[1]:
+                st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
+            with cols[2]:
+                grade_colors = {"A": "green", "B": "orange", "C": "red"}
+                grade_color = grade_colors.get(selected_title_eval.grade, "gray")
+                st.markdown(
+                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
+                    unsafe_allow_html=True
+                )
             
             # 見出しの表示
             st.subheader("生成された見出し")
