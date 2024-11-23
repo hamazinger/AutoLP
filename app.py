@@ -15,6 +15,9 @@ import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
 
+# OpenAIライブラリのバージョンを確認
+st.write(f"OpenAIライブラリのバージョン: {openai.__version__}")
+
 @dataclass
 class WebContent:
     title: str
@@ -268,15 +271,19 @@ class TitleGenerator:
         }}
         """
         
-        # 新しいインターフェースでのAPI呼び出し
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
+        # API呼び出し
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7
+            )
+        except Exception as e:
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            return []
         
         result_text = response.choices[0].message['content'].strip()
         # JSON部分を抽出
@@ -308,15 +315,19 @@ class HeadlineGenerator:
             "solution": "解決策の見出し"
         }}
         """
-        
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
+        # API呼び出し
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7
+            )
+        except Exception as e:
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            return {}
         
         result_text = response.choices[0].message['content'].strip()
         # JSON部分を抽出
