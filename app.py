@@ -22,9 +22,6 @@ import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
 
-# OpenAIライブラリのバージョンを確認
-st.write(f"OpenAIライブラリのバージョン: {openai.__version__}")
-
 @dataclass
 class WebContent:
     title: str
@@ -150,19 +147,25 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None) -> List[Dict[str, str]]:
+    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
         """指定されたコンテキストに基づいてタイトルを生成"""
         additional_context = ""
         if product_url:
             content = self.url_extractor.extract_with_trafilatura(product_url)
             if content and not content.error:
-                additional_context = f"""
+                additional_context += f"""
 製品タイトル: {content.title}
 製品説明: {content.description}
 製品詳細: {content.main_content[:1000]}
 """
             else:
                 st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
+        
+        if file_content:
+            additional_context += f"""
+アップロードされたファイルの内容:
+{file_content}
+"""
         
         # プロンプトの作成
         prompt = self.fixed_prompt_part.format(
@@ -466,9 +469,9 @@ def load_seminar_data():
     try:
         df = client.query(query).to_dataframe()
         # デバッグ情報の出力
-        st.write("データフレームの情報:")
-        st.write("カラム一覧:", df.columns.tolist())
-        st.write("データ件数:", len(df))
+        # st.write("データフレームの情報:")
+        # st.write("カラム一覧:", df.columns.tolist())
+        # st.write("データ件数:", len(df))
         
         if 'Major_Category' not in df.columns:
             st.error("Major_Categoryカラムが見つかりません")
@@ -477,7 +480,7 @@ def load_seminar_data():
             
         # Major_Categoryの欠損値を確認
         null_categories = df['Major_Category'].isnull().sum()
-        st.write("Major_Categoryの欠損値数:", null_categories)
+        # st.write("Major_Categoryの欠損値数:", null_categories)
         
         return df
     except Exception as e:
@@ -550,8 +553,6 @@ def main():
     
     st.title("セミナータイトルジェネレーター")
     
-    st.write(f"OpenAIライブラリのバージョン: {openai.__version__}")
-    
     if st.session_state.seminar_data is None:
         with st.spinner("セミナーデータを読み込んでいます..."):
             df = load_seminar_data()
@@ -601,6 +602,18 @@ def main():
         )
         st.session_state.selected_category = category
 
+    # ファイルアップロード機能
+    uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
+    file_content = ""
+    if uploaded_file is not None:
+        try:
+            file_content = uploaded_file.getvalue().decode('utf-8')
+            st.success("ファイルを正常に読み込みました")
+            with st.expander("アップロードされたファイルの内容"):
+                st.write(file_content)
+        except Exception as e:
+            st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
+    
     # プロンプト編集機能
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
@@ -619,7 +632,8 @@ def main():
                 titles = title_generator.generate_titles(
                     context,
                     st.session_state.title_prompt,
-                    product_url
+                    product_url,
+                    file_content
                 )
                 st.session_state.generated_titles = []
                 for title in titles:
