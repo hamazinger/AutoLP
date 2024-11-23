@@ -141,8 +141,7 @@ class SeminarTitleEvaluator:
         self.df = seminar_data
         self._initialize_analytics()
 
-
-def _initialize_analytics(self):
+    def _initialize_analytics(self):
         """分析に必要なデータを初期化"""
         # 高集客セミナー（2.5以上）からキーワードを抽出
         high_performing = self.df[self.df['Acquisition_Speed'] >= 2.5]
