@@ -132,22 +132,22 @@ class TitleGenerator:
         # ユーザーが編集できないプロンプト部分
         self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
-{{
+{
     "titles": [
-        {{
+        {
             "main_title": "メインタイトル1",
             "sub_title": "サブタイトル1"
-        }},
-        {{
+        },
+        {
             "main_title": "メインタイトル2",
             "sub_title": "サブタイトル2"
-        }},
-        {{
+        },
+        {
             "main_title": "メインタイトル3",
             "sub_title": "サブタイトル3"
-        }}
+        }
     ]
-}}
+}
 """
 
     def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None) -> List[Dict[str, str]]:
@@ -341,17 +341,22 @@ class HeadlineGenerator:
 
 """
         self.user_editable_prompt = """
+以下の条件を満たす見出しを生成してください：
+- 各見出しは簡潔でわかりやすくする
+- セミナーの内容を的確に反映する
+"""
+        self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください。JSONは有効な形式でなければなりません。
-{{
+{
     "background": "背景の見出し",
     "problem": "課題の見出し",
     "solution": "解決策の見出し"
-}}
+}
 """
         
     def generate_headlines(self, title: str, prompt_template: str = None) -> Dict[str, str]:
         """タイトルに基づいて見出しを生成"""
-        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt)
+        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
         
         try:
             response = openai.ChatCompletion.create(
@@ -376,6 +381,49 @@ class HeadlineGenerator:
             result = json.loads(json_text)
         
         return result
+
+class BodyGenerator:
+    def __init__(self, api_key: str):
+        openai.api_key = api_key
+        self.fixed_prompt_part = """
+以下のセミナータイトルと見出しに基づいて、本文を生成してください：
+
+タイトル：「{title}」
+背景：「{background}」
+課題：「{problem}」
+解決策：「{solution}」
+
+"""
+        self.user_editable_prompt = """
+以下の条件を満たす本文を生成してください：
+- 各見出しに対して具体的な内容を記述する
+- 全体で1000文字以内にまとめる
+"""
+
+    def generate_body(self, title: str, headlines: Dict[str, str], prompt_template: str = None) -> str:
+        """タイトルと見出しに基づいて本文を生成"""
+        prompt = self.fixed_prompt_part.format(
+            title=title,
+            background=headlines.get("background", ""),
+            problem=headlines.get("problem", ""),
+            solution=headlines.get("solution", "")
+        ) + (prompt_template or self.user_editable_prompt)
+        
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0  # 温度を0に設定
+            )
+        except Exception as e:
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            return ""
+        
+        result_text = response.choices[0].message['content'].strip()
+        return result_text
 
 class InMemoryCache:
     def __init__(self):
@@ -466,6 +514,8 @@ def init_session_state():
         st.session_state.generated_titles = []
     if 'selected_title' not in st.session_state:
         st.session_state.selected_title = None
+    if 'selected_title_for_headline' not in st.session_state:
+        st.session_state.selected_title_for_headline = None
     if 'selected_category' not in st.session_state:
         st.session_state.selected_category = None
     if 'headlines' not in st.session_state:
@@ -484,6 +534,10 @@ def init_session_state():
         st.session_state.title_prompt = TitleGenerator("dummy_key").user_editable_prompt
     if 'headline_prompt' not in st.session_state:
         st.session_state.headline_prompt = HeadlineGenerator("dummy_key").user_editable_prompt
+    if 'body_prompt' not in st.session_state:
+        st.session_state.body_prompt = BodyGenerator("dummy_key").user_editable_prompt
+    if 'generated_body' not in st.session_state:
+        st.session_state.generated_body = None
 
 def main():
     init_session_state()
@@ -517,6 +571,7 @@ def main():
     
     title_generator = TitleGenerator(api_key)
     headline_generator = HeadlineGenerator(api_key)
+    body_generator = BodyGenerator(api_key)
     cache = InMemoryCache()
     
     # Step 1: 基本情報入力
@@ -551,14 +606,6 @@ def main():
         st.session_state.title_prompt = st.text_area(
             "プロンプトテンプレート",
             value=st.session_state.title_prompt,
-            height=400
-        )
-    
-    # プロンプト編集機能（見出し用）
-    with st.expander("見出し生成プロンプトの編集", expanded=False):
-        st.session_state.headline_prompt = st.text_area(
-            "プロンプトテンプレート",
-            value=st.session_state.headline_prompt,
             height=400
         )
     
@@ -659,14 +706,33 @@ def main():
                         st.error(f"エラーが発生しました: {str(e)}")
     
     # Step 3: 見出し生成
-    if st.session_state.selected_title:
+    if st.session_state.generated_titles:
         st.header("Step 3: 見出し生成")
+        
+        # 利用可能なタイトルを収集
+        available_titles = []
+        for gen_title in st.session_state.generated_titles:
+            full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
+            available_titles.append(full_title)
+        
+        st.session_state.selected_title_for_headline = st.selectbox(
+            "見出しを生成するタイトルを選択してください",
+            options=available_titles
+        )
+        
+        # 見出し生成プロンプト編集欄を移動
+        with st.expander("見出し生成プロンプトの編集", expanded=False):
+            st.session_state.headline_prompt = st.text_area(
+                "プロンプトテンプレート",
+                value=st.session_state.headline_prompt,
+                height=400
+            )
         
         if st.button("見出しを生成", key="generate_headlines"):
             with st.spinner("見出しを生成中..."):
                 try:
                     st.session_state.headlines = headline_generator.generate_headlines(
-                        st.session_state.selected_title,
+                        st.session_state.selected_title_for_headline,
                         st.session_state.headline_prompt
                     )
                 except Exception as e:
@@ -676,13 +742,13 @@ def main():
             st.subheader("選択されたタイトル")
             selected_title_eval = next(
                 (t.evaluation for t in st.session_state.generated_titles 
-                 if f"{t.main_title} - {t.sub_title}" == st.session_state.selected_title), 
+                 if f"{t.main_title} - {t.sub_title}" == st.session_state.selected_title_for_headline), 
                 None
             )
             
             cols = st.columns([3, 1, 1])
             with cols[0]:
-                st.write(st.session_state.selected_title)
+                st.write(st.session_state.selected_title_for_headline)
             if selected_title_eval:
                 with cols[1]:
                     st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
@@ -706,6 +772,32 @@ def main():
             with cols[2]:
                 st.markdown("### 解決策")
                 st.write(st.session_state.headlines.get("solution", ""))
+            
+            # Step 4: 本文生成
+            st.header("Step 4: 本文生成")
+            
+            # 本文生成プロンプト編集欄
+            with st.expander("本文生成プロンプトの編集", expanded=False):
+                st.session_state.body_prompt = st.text_area(
+                    "本文生成プロンプトテンプレート",
+                    value=st.session_state.body_prompt,
+                    height=400
+                )
+            
+            if st.button("本文を生成", key="generate_body"):
+                with st.spinner("本文を生成中..."):
+                    try:
+                        st.session_state.generated_body = body_generator.generate_body(
+                            st.session_state.selected_title_for_headline,
+                            st.session_state.headlines,
+                            st.session_state.body_prompt
+                        )
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {str(e)}")
+            
+            if st.session_state.generated_body:
+                st.subheader("生成された本文")
+                st.write(st.session_state.generated_body)
 
 if __name__ == "__main__":
     main()
