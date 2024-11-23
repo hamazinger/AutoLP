@@ -258,13 +258,17 @@ class TitleGenerator:
         }}
         """
         
+        # 新しいインターフェースでのAPI呼び出し
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                {"role": "user", "content": prompt}
+            ],
             temperature=0.7
         )
         
-        result_text = response['choices'][0]['message']['content'].strip()
+        result_text = response.choices[0].message['content'].strip()
         # JSON部分を抽出
         try:
             result = json.loads(result_text)
@@ -297,11 +301,14 @@ class HeadlineGenerator:
         
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                {"role": "user", "content": prompt}
+            ],
             temperature=0.7
         )
         
-        result_text = response['choices'][0]['message']['content'].strip()
+        result_text = response.choices[0].message['content'].strip()
         # JSON部分を抽出
         try:
             result = json.loads(result_text)
@@ -313,6 +320,8 @@ class HeadlineGenerator:
             result = json.loads(json_text)
         
         return result
+
+# 以下、残りのコードはそのまま
 
 # インメモリキャッシュ
 class InMemoryCache:
@@ -596,15 +605,16 @@ def main():
             cols = st.columns([3, 1, 1])
             with cols[0]:
                 st.write(st.session_state.selected_title)
-            with cols[1]:
-                st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
-            with cols[2]:
-                grade_colors = {"A": "green", "B": "orange", "C": "red"}
-                grade_color = grade_colors.get(selected_title_eval.grade, "gray")
-                st.markdown(
-                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
-                    unsafe_allow_html=True
-                )
+            if selected_title_eval:
+                with cols[1]:
+                    st.metric("集客速度", f"{selected_title_eval.speed:.1f}")
+                with cols[2]:
+                    grade_colors = {"A": "green", "B": "orange", "C": "red"}
+                    grade_color = grade_colors.get(selected_title_eval.grade, "gray")
+                    st.markdown(
+                        f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {selected_title_eval.grade}</p>',
+                        unsafe_allow_html=True
+                    )
             
             # 見出しの表示
             st.subheader("生成された見出し")
