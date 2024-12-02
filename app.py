@@ -108,8 +108,9 @@ class URLContentExtractor:
             )
 
 class TitleGenerator:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
+        self.model = model
         self.url_extractor = URLContentExtractor()
         self.fixed_prompt_part = """
 以下の文脈に基づいて、セミナータイトルを3つ生成してください：
@@ -179,7 +180,7 @@ class TitleGenerator:
         
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
                     {"role": "user", "content": prompt}
@@ -340,8 +341,9 @@ class SeminarTitleEvaluator:
         return base_score
 
 class HeadlineGenerator:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
+        self.model = model
         self.fixed_prompt_part = """
 以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
 「{title}」
@@ -367,7 +369,7 @@ class HeadlineGenerator:
         
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
                     {"role": "user", "content": prompt}
@@ -390,8 +392,9 @@ class HeadlineGenerator:
         return result
 
 class BodyGenerator:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
+        self.model = model
         self.fixed_prompt_part = """
 以下のセミナータイトルと見出しに基づいて、本文を生成してください：
 
@@ -418,7 +421,7 @@ class BodyGenerator:
         
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
                     {"role": "user", "content": prompt}
@@ -565,9 +568,11 @@ def main():
                 st.error("データの読み込みに失敗しました。")
                 return
     
-    title_generator = TitleGenerator(api_key)
-    headline_generator = HeadlineGenerator(api_key)
-    body_generator = BodyGenerator(api_key)
+    # モデル名を指定して各ジェネレーターをインスタンス化
+    model_name = "gpt-4o"  # ここでモデル名を指定
+    title_generator = TitleGenerator(api_key, model=model_name)
+    headline_generator = HeadlineGenerator(api_key, model=model_name)
+    body_generator = BodyGenerator(api_key, model=model_name)
     cache = InMemoryCache()
     
     # Step 1: 基本情報入力
