@@ -79,7 +79,7 @@ class URLContentExtractor:
                 downloaded,
                 include_comments=False,
                 include_tables=False,
-                timeout=0
+                # timeout=0
             )
             if content is None:
                 return WebContent(
