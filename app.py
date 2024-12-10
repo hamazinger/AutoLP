@@ -17,6 +17,12 @@ from docx import Document
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
+# Streamlitのページ設定を最初に記述
+st.set_page_config(
+    page_title="セミナータイトルジェネレーター",
+    layout="wide"
+)
+
 # データクラスの定義
 @dataclass
 class WebContent:
