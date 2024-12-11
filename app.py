@@ -141,8 +141,6 @@ class TitleGenerator:
 2. メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
 3. 感嘆符（！）は使用しない
 4. 参加したら何がわかるのかが明確である
-5. 具体的な課題や解決方法を明示する
-6. セミナーの価値提案が明確である
 """
         self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
@@ -359,11 +357,9 @@ class HeadlineGenerator:
         openai.api_key = api_key
         self.model = model
         self.fixed_prompt_part = """
-以下のセミナータイトルに基づいて、背景・課題・解決策の3つの見出しを生成してください：
-「{title}」
+「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。 」
 """
         self.user_editable_prompt = """
-以下の条件を満たす見出しを生成してください：
 見出し1：このセミナーを開催する、社会や企業の背景
 見出し2：このセミナーで訴求したい、課題、問題、悩み、不安
 見出し3：上記課題の解決の方向性
@@ -423,7 +419,6 @@ class BodyGenerator:
 以下の条件を満たす本文を生成してください：
 - 各見出しに対して具体的な内容を記述する
 - 全体で1000文字以内にまとめる
-- 参加者のメリットを明確に示す
 """
 
     def generate_body(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
