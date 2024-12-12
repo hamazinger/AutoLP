@@ -122,7 +122,7 @@ class URLContentExtractor:
             )
 
 class TitleGenerator:
-    def __init__(self, api_key: str, model: str = "gpt-4"):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
         self.model = model
         self.url_extractor = URLContentExtractor()
