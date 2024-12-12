@@ -126,7 +126,8 @@ class TitleGenerator:
         openai.api_key = api_key
         self.model = model
         self.url_extractor = URLContentExtractor()
-        self.fixed_prompt_part = """
+        # fixed_prompt_partを削除
+        self.user_editable_prompt = """
 あなたはセミナータイトルの生成を行うプロフェッショナルなコピーライターです。以下の制約条件と入力された情報をもとにセミナータイトルを生成してください。
 
 # 制約条件
@@ -146,9 +147,6 @@ class TitleGenerator:
 5. メインタイトルとサブタイトルを組み合わせ、参加したら何がわかるのかが明確なタイトルを生成する
 6. 感嘆符（！）が使用されていないことを確認する
 
-"""
-        # 改善後のプロンプト
-        self.user_editable_prompt = """
 # Examples
 
 - **Main Title**: 人材不足でも、社内ネットワークを安定稼働し続けるにはどうすればよいのか？
@@ -193,7 +191,7 @@ class TitleGenerator:
 {file_content}
 """
         
-        prompt = self.fixed_prompt_part + f"""
+        prompt = f"""
 # 入力情報
 {context}
 {additional_context}
@@ -796,7 +794,7 @@ def main():
                     value=st.session_state.manual_headlines.background,
                     key="edit_background"
                 )
-                problem = st.text_area(
+                problem = st.textarea(
                     "課題",
                     value=st.session_state.manual_headlines.problem,
                     key="edit_problem"
