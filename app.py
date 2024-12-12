@@ -127,20 +127,32 @@ class TitleGenerator:
         self.model = model
         self.url_extractor = URLContentExtractor()
         self.fixed_prompt_part = """
-以下の文脈に基づいて、セミナータイトルを3つ生成してください：
+あなたはセミナータイトルの生成を行うプロフェッショナルなコピーライターです。以下の制約条件と入力された情報をもとにセミナータイトルを生成してください。
 
-コンテキスト：
-{context}
+# 制約条件
+- メインタイトルとサブタイトルに分ける
+- メインタイトルでは、問題点や課題、悩み、不安を投げかける
+- サブタイトルでは、メインタイトルで表現したインサイトを解決する手段や手法、アプローチ、その先に得られるベネフィットを表現する
+- メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
+- 感嘆符（！）は使用しない
+- 参加したら何がわかるのかが明確である
 
-{additional_context}
+# Steps
+
+1. 入力情報から製品の特徴とペインポイントを理解する
+2. ペインポイントに基づき、メインタイトルで問題点や課題、悩み、不安を投げかける
+3. 製品の特徴に基づき、サブタイトルでメインタイトルで表現したインサイトを解決する手段や手法、アプローチ、その先に得られるベネフィットを表現する
+4. メインタイトルとサブタイトルをそれぞれ40文字以内で簡潔に表現する
+5. メインタイトルとサブタイトルを組み合わせ、参加したら何がわかるのかが明確なタイトルを生成する
+6. 感嘆符（！）が使用されていないことを確認する
+
 """
         # 改善後のプロンプト
         self.user_editable_prompt = """
-以下の条件を満たすタイトルを生成してください：
-1. 問題点や課題、悩み、不安を投げかけるタイトルにする
-2. メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
-3. 感嘆符（！）は使用しない
-4. 参加したら何がわかるのかが明確である
+# Examples
+
+- **Main Title**: 人材不足でも、社内ネットワークを安定稼働し続けるにはどうすればよいのか？
+- **Subtitle**: 〜ネットワーク障害解決を迅速化するマップ機能の活用法を解説〜
 """
         self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
@@ -162,7 +174,7 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_contents: List[str] = None) -> List[Dict[str, str]]:
+    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
         additional_context = ""
         if product_url:
             content = self.url_extractor.extract_with_trafilatura(product_url)
@@ -175,19 +187,18 @@ class TitleGenerator:
             else:
                 st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
         
-        if file_contents:
-            for i, file_content in enumerate(file_contents):
-                additional_context += f"""
-アップロードされたファイル{i+1}の内容:
+        if file_content:
+            additional_context += f"""
+アップロードされたファイルの内容:
 {file_content}
 """
         
-        prompt = self.fixed_prompt_part.format(
-            context=context,
-            additional_context=additional_context
-        ) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
+        prompt = self.fixed_prompt_part + f"""
+# 入力情報
+{context}
+{additional_context}
+""" + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
         
-        result_text = ""  # 初期値を設定
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
@@ -244,13 +255,13 @@ class SeminarTitleEvaluator:
         for title in high_performing_df['Seminar_Title']:
             if isinstance(title, str):
                 clean_title = (title.replace('〜', ' ')
-                                  .replace('、', ' ')
-                                  .replace('【', ' ')
-                                  .replace('】', ' ')
-                                  .replace('「', ' ')
-                                  .replace('」', ' '))
+                                 .replace('、', ' ')
+                                 .replace('【', ' ')
+                                 .replace('】', ' ')
+                                 .replace('「', ' ')
+                                 .replace('」', ' '))
                 title_words = [w for w in clean_title.split() 
-                             if len(w) > 1 and not w.isdigit()]
+                              if len(w) > 1 and not w.isdigit()]
                 words.extend(title_words)
         
         word_counts = pd.Series(words).value_counts()
@@ -551,9 +562,6 @@ def init_session_state():
         st.session_state.generated_body = None
     if 'manual_headlines' not in st.session_state:  # 新規追加：手動編集用の見出し
         st.session_state.manual_headlines = None
-    if 'uploaded_files' not in st.session_state:  # アップロードされたファイルを保存するリスト
-        st.session_state.uploaded_files = []
-
 
 def main():
     init_session_state()
@@ -615,38 +623,27 @@ def main():
         )
         st.session_state.selected_category = category
 
-    # ファイルアップローダーを修正
-    uploaded_files = st.file_uploader("ファイルをアップロード (最大3つ)", type=['txt', 'pdf', 'docx'], accept_multiple_files=True)
-    
-    # アップロードファイル数の制限
-    if uploaded_files and len(uploaded_files) > 3:
-        st.error("アップロードできるファイルは3つまでです。")
-        uploaded_files = uploaded_files[:3]
-    
-    file_contents = []
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            try:
+    uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
+    file_content = ""
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.type == "text/plain":
+                file_content = uploaded_file.getvalue().decode('utf-8')
+            elif uploaded_file.type == "application/pdf":
+                reader = PdfReader(uploaded_file)
                 file_content = ""
-                if uploaded_file.type == "text/plain":
-                    file_content = uploaded_file.getvalue().decode('utf-8')
-                elif uploaded_file.type == "application/pdf":
-                    reader = PdfReader(uploaded_file)
-                    for page in reader.pages:
-                        file_content += page.extract_text()
-                elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                    document = Document(uploaded_file)
-                    file_content = "\n".join([para.text for para in document.paragraphs])
-                else:
-                    st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
-                    continue
-                file_contents.append(file_content)
-                st.success(f"{uploaded_file.name}を正常に読み込みました")
-                with st.expander(f"{uploaded_file.name}の内容"):
-                   st.write(file_content)
-            except Exception as e:
-                st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
-
+                for page in reader.pages:
+                    file_content += page.extract_text()
+            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                document = Document(uploaded_file)
+                file_content = "\n".join([para.text for para in document.paragraphs])
+            else:
+                st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
+            st.success("ファイルを正常に読み込みました")
+            with st.expander("アップロードされたファイルの内容"):
+                st.write(file_content)
+        except Exception as e:
+            st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
     
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
@@ -666,7 +663,7 @@ def main():
                     context,
                     st.session_state.title_prompt,
                     product_url,
-                    file_contents
+                    file_content
                 )
                 st.session_state.generated_titles = []
                 for title in titles:
@@ -721,7 +718,7 @@ def main():
             with cols[5]:  # 評価コメントを追加
                 st.write(f"**評価:** {gen_title.evaluation.comment}")
         
-                # 手動タイトル評価
+        # 手動タイトル評価
         st.subheader("手動タイトル評価")
         col1, col2 = st.columns([4, 1])
         with col1:
@@ -754,7 +751,7 @@ def main():
                         display_evaluation_details(full_title, st.session_state.evaluator)
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
-    
+        
         # Step 3: 見出し生成
         if st.session_state.generated_titles:
             st.header("Step 3: 見出し生成")
