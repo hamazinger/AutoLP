@@ -162,7 +162,7 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
+    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_contents: List[str] = None) -> List[Dict[str, str]]:
         additional_context = ""
         if product_url:
             content = self.url_extractor.extract_with_trafilatura(product_url)
@@ -175,9 +175,10 @@ class TitleGenerator:
             else:
                 st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
         
-        if file_content:
-            additional_context += f"""
-アップロードされたファイルの内容:
+        if file_contents:
+            for i, file_content in enumerate(file_contents):
+                additional_context += f"""
+アップロードされたファイル{i+1}の内容:
 {file_content}
 """
         
@@ -549,6 +550,9 @@ def init_session_state():
         st.session_state.generated_body = None
     if 'manual_headlines' not in st.session_state:  # 新規追加：手動編集用の見出し
         st.session_state.manual_headlines = None
+    if 'uploaded_files' not in st.session_state:  # アップロードされたファイルを保存するリスト
+        st.session_state.uploaded_files = []
+
 
 def main():
     init_session_state()
@@ -610,27 +614,38 @@ def main():
         )
         st.session_state.selected_category = category
 
-    uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
-    file_content = ""
-    if uploaded_file is not None:
-        try:
-            if uploaded_file.type == "text/plain":
-                file_content = uploaded_file.getvalue().decode('utf-8')
-            elif uploaded_file.type == "application/pdf":
-                reader = PdfReader(uploaded_file)
+    # ファイルアップローダーを修正
+    uploaded_files = st.file_uploader("ファイルをアップロード (最大3つ)", type=['txt', 'pdf', 'docx'], accept_multiple_files=True)
+    
+    # アップロードファイル数の制限
+    if uploaded_files and len(uploaded_files) > 3:
+        st.error("アップロードできるファイルは3つまでです。")
+        uploaded_files = uploaded_files[:3]
+    
+    file_contents = []
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            try:
                 file_content = ""
-                for page in reader.pages:
-                    file_content += page.extract_text()
-            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                document = Document(uploaded_file)
-                file_content = "\n".join([para.text for para in document.paragraphs])
-            else:
-                st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
-            st.success("ファイルを正常に読み込みました")
-            with st.expander("アップロードされたファイルの内容"):
-                st.write(file_content)
-        except Exception as e:
-            st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
+                if uploaded_file.type == "text/plain":
+                    file_content = uploaded_file.getvalue().decode('utf-8')
+                elif uploaded_file.type == "application/pdf":
+                    reader = PdfReader(uploaded_file)
+                    for page in reader.pages:
+                        file_content += page.extract_text()
+                elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    document = Document(uploaded_file)
+                    file_content = "\n".join([para.text for para in document.paragraphs])
+                else:
+                    st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
+                    continue
+                file_contents.append(file_content)
+                st.success(f"{uploaded_file.name}を正常に読み込みました")
+                with st.expander(f"{uploaded_file.name}の内容"):
+                   st.write(file_content)
+            except Exception as e:
+                st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
+
     
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
@@ -650,7 +665,7 @@ def main():
                     context,
                     st.session_state.title_prompt,
                     product_url,
-                    file_content
+                    file_contents
                 )
                 st.session_state.generated_titles = []
                 for title in titles:
@@ -792,7 +807,7 @@ def main():
                     "解決策",
                     value=st.session_state.manual_headlines.solution,
                     key="edit_solution"
-                )
+                                )
                 
                 # 編集内容を保存
                 st.session_state.manual_headlines = HeadlineSet(
