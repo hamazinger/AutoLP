@@ -187,6 +187,7 @@ class TitleGenerator:
             additional_context=additional_context
         ) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
         
+        result_text = ""  # 初期値を設定
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
@@ -720,7 +721,7 @@ def main():
             with cols[5]:  # 評価コメントを追加
                 st.write(f"**評価:** {gen_title.evaluation.comment}")
         
-        # 手動タイトル評価
+                # 手動タイトル評価
         st.subheader("手動タイトル評価")
         col1, col2 = st.columns([4, 1])
         with col1:
@@ -807,7 +808,7 @@ def main():
                     "解決策",
                     value=st.session_state.manual_headlines.solution,
                     key="edit_solution"
-                                )
+                )
                 
                 # 編集内容を保存
                 st.session_state.manual_headlines = HeadlineSet(
