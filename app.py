@@ -373,7 +373,7 @@ class SeminarTitleEvaluator:
         return base_score
 
 class HeadlineGenerator:
-    def __init__(self, api_key: str, model: str = "gpt-4"):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
         self.model = model
         self.fixed_prompt_part = """
@@ -425,7 +425,7 @@ class HeadlineGenerator:
             return HeadlineSet("", "", "")
 
 class BodyGenerator:
-    def __init__(self, api_key: str, model: str = "gpt-4"):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
         self.model = model
         self.fixed_prompt_part = """
@@ -603,7 +603,7 @@ def main():
                 st.error("データの読み込みに失敗しました。")
                 return
     
-    model_name = "gpt-4"
+    model_name = "gpt-4o"
     title_generator = TitleGenerator(api_key, model=model_name)
     headline_generator = HeadlineGenerator(api_key, model=model_name)
     body_generator = BodyGenerator(api_key, model=model_name)
