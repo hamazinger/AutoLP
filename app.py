@@ -794,7 +794,7 @@ def main():
                     value=st.session_state.manual_headlines.background,
                     key="edit_background"
                 )
-                problem = st.textarea(
+                problem = st.text_area(
                     "課題",
                     value=st.session_state.manual_headlines.problem,
                     key="edit_problem"
