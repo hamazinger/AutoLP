@@ -414,6 +414,23 @@ class HeadlineGenerator:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return HeadlineSet("", "", "")
 
+# class BodyGenerator:
+#     def __init__(self, api_key: str, model: str = "gpt-4"):
+#         openai.api_key = api_key
+#         self.model = model
+#         self.fixed_prompt_part = """
+# 以下のセミナータイトルと見出しに基づいて、本文を生成してください：
+
+# タイトル：「{title}」
+# 背景：「{background}」
+# 課題：「{problem}」
+# 解決策：「{solution}」
+# """
+#         self.user_editable_prompt = """
+# 以下の条件を満たす本文を生成してください：
+# - 各見出しに対して具体的な内容を記述する
+# - 全体で1000文字以内にまとめる
+# """
 class BodyGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4"):
         openai.api_key = api_key
@@ -427,10 +444,20 @@ class BodyGenerator:
 解決策：「{solution}」
 """
         self.user_editable_prompt = """
-以下の条件を満たす本文を生成してください：
-- 各見出しに対して具体的な内容を記述する
-- 全体で1000文字以内にまとめる
+以下の制約条件と入力情報を踏まえて本文を生成してください。
+
+# 制約条件
+- 本文は3つのセクション（「背景」「課題」「解決策」）に分かれ、それぞれに対応する見出しを明示してください。
+  見出しは本文中で明確に見出しであることがわかる書式（例：### 背景、### 課題、### 解決策）を用いてください。
+- 各見出しセクションは最低300文字以上とし、3文以内でまとめてください（句読点で区切られた3文以内）。
+- 全文で1000文字以内に収めてください。
+- 本文中では箇条書きを使用しないでください。
+- 「背景」「課題」「解決策」の3つの見出しを通して、一連のストーリーとして流れを持たせてください。
+- セミナー内容の紹介および参加を促す表現は、「解決策」の見出しのセクションでのみ行ってください。
+- 重要なキーワードは本文中に必ず含めてください。
+- あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
 """
+
 
     def generate_body(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
         prompt = self.fixed_prompt_part.format(
