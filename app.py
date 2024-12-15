@@ -23,6 +23,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# 右下の開発者プロフィールリンクやフッター非表示用CSS
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # データクラスの定義
 @dataclass
 class WebContent:
@@ -126,7 +136,6 @@ class TitleGenerator:
         openai.api_key = api_key
         self.model = model
         self.url_extractor = URLContentExtractor()
-        # fixed_prompt_partを削除
         self.user_editable_prompt = """
 あなたはセミナータイトルの生成を行うプロフェッショナルなコピーライターです。以下の制約条件と入力された情報をもとにセミナータイトルを生成してください。
 
@@ -279,7 +288,7 @@ class SeminarTitleEvaluator:
         
         # キーワードに基づくコメント
         if analysis_data["attractive_words"]:
-            comments.append(f"効果的なキーワードが含まれています")
+            comments.append("効果的なキーワードが含まれています")
         else:
             comments.append("効果的なキーワードの追加を検討してください")
         
@@ -405,8 +414,9 @@ class HeadlineGenerator:
             except json.JSONDecodeError:
                 start_index = result_text.find('{')
                 end_index = result_text.rfind('}') + 1
-                json_text = result_text[start_index:end_index]
-                result = json.loads(json_text)
+                if start_index != -1 and end_index > start_index:
+                    json_text = result_text[start_index:end_index]
+                    result = json.loads(json_text)
             
             return HeadlineSet.from_dict(result)
             
@@ -414,23 +424,6 @@ class HeadlineGenerator:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return HeadlineSet("", "", "")
 
-# class BodyGenerator:
-#     def __init__(self, api_key: str, model: str = "gpt-4"):
-#         openai.api_key = api_key
-#         self.model = model
-#         self.fixed_prompt_part = """
-# 以下のセミナータイトルと見出しに基づいて、本文を生成してください：
-
-# タイトル：「{title}」
-# 背景：「{background}」
-# 課題：「{problem}」
-# 解決策：「{solution}」
-# """
-#         self.user_editable_prompt = """
-# 以下の条件を満たす本文を生成してください：
-# - 各見出しに対して具体的な内容を記述する
-# - 全体で1000文字以内にまとめる
-# """
 class BodyGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4"):
         openai.api_key = api_key
@@ -446,18 +439,18 @@ class BodyGenerator:
         self.user_editable_prompt = """
 以下の制約条件と入力情報を踏まえて本文を生成してください。
 
-# 制約条件
+## 制約条件
 - 本文は3つのセクション（「背景」「課題」「解決策」）に分かれ、それぞれに対応する見出しを明示してください。
   見出しは本文中で明確に見出しであることがわかる書式（例：### 背景、### 課題、### 解決策）を用いてください。
 - 各見出しセクションは最低300文字以上とし、3文以内でまとめてください（句読点で区切られた3文以内）。
 - 全文で1000文字以内に収めてください。
 - 本文中では箇条書きを使用しないでください。
+- 各セクションには具体例を必ず含めてください。抽象的な表現だけでなく、明確な事例や場面描写を盛り込み、読者が容易にイメージできるようにしてください。
 - 「背景」「課題」「解決策」の3つの見出しを通して、一連のストーリーとして流れを持たせてください。
 - セミナー内容の紹介および参加を促す表現は、「解決策」の見出しのセクションでのみ行ってください。
 - 重要なキーワードは本文中に必ず含めてください。
 - あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
 """
-
 
     def generate_body(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
         prompt = self.fixed_prompt_part.format(
@@ -537,15 +530,11 @@ def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
     )
     
     st.write("### 評価詳細")
-    
-    # 評価コメントの表示（新規追加）
     st.info(f"**評価コメント:** {analysis.evaluation_comment}")
     
-    # 評価理由を表示
     for reason in analysis.reasoning.values():
         st.write(f"- {reason}")
     
-    # キーワードのハイライト表示
     if analysis.attractive_words:
         st.write("### タイトル中の効果的なキーワード")
         highlighted_title = title
@@ -585,7 +574,7 @@ def init_session_state():
         st.session_state.body_prompt = BodyGenerator("dummy_key").user_editable_prompt
     if 'generated_body' not in st.session_state:
         st.session_state.generated_body = None
-    if 'manual_headlines' not in st.session_state:  # 新規追加：手動編集用の見出し
+    if 'manual_headlines' not in st.session_state:
         st.session_state.manual_headlines = None
 
 def main():
@@ -715,7 +704,6 @@ def main():
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
         
-        # 生成されたタイトルの表示
         st.subheader("生成タイトル")
         for i, gen_title in enumerate(st.session_state.generated_titles):
             cols = st.columns([0.5, 2, 2, 1, 1, 2])  # 評価コメント用にカラムを追加
@@ -740,7 +728,7 @@ def main():
                     f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
                     unsafe_allow_html=True
                 )
-            with cols[5]:  # 評価コメントを追加
+            with cols[5]:
                 st.write(f"**評価:** {gen_title.evaluation.comment}")
         
         # 手動タイトル評価
@@ -772,7 +760,6 @@ def main():
                             GeneratedTitle(main_title=manual_main_title, sub_title=manual_sub_title, evaluation=evaluation)
                         )
                         
-                        # 評価詳細の表示
                         display_evaluation_details(full_title, st.session_state.evaluator)
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
@@ -781,7 +768,6 @@ def main():
         if st.session_state.generated_titles:
             st.header("Step 3: 見出し生成")
             
-            # 利用可能なタイトルを収集（手動作成タイトルを含む）
             available_titles = []
             for gen_title in st.session_state.generated_titles:
                 full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
@@ -807,15 +793,13 @@ def main():
                             st.session_state.headline_prompt
                         )
                         st.session_state.headlines = headlines
-                        st.session_state.manual_headlines = headlines  # 手動編集用にコピー
+                        st.session_state.manual_headlines = headlines
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
             
-            # 見出しの表示と編集（新規追加）
             if st.session_state.manual_headlines:
                 st.subheader("生成された見出し（編集可能）")
                 
-                # 見出しの手動編集フォーム
                 background = st.text_area(
                     "背景",
                     value=st.session_state.manual_headlines.background,
@@ -832,7 +816,6 @@ def main():
                     key="edit_solution"
                 )
                 
-                # 編集内容を保存
                 st.session_state.manual_headlines = HeadlineSet(
                     background=background,
                     problem=problem,
@@ -854,7 +837,7 @@ def main():
                         try:
                             st.session_state.generated_body = body_generator.generate_body(
                                 st.session_state.selected_title_for_headline,
-                                st.session_state.manual_headlines,  # 編集された見出しを使用
+                                st.session_state.manual_headlines,
                                 st.session_state.body_prompt
                             )
                         except Exception as e:
