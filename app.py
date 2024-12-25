@@ -160,6 +160,7 @@ class URLContentExtractor:
                 description="",
                 main_content="",
                 error=f"フォールバックも失敗しました: {str(e)} (前エラー: {prev_error})"
+            )
 
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
