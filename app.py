@@ -123,13 +123,43 @@ class URLContentExtractor:
                 description=description,
                 main_content=content
             )
+        # except Exception as e:
+        #     return WebContent(
+        #         title="",
+        #         description="",
+        #         main_content="",
+        #         error=f"エラーが発生しました: {str(e)}"
+        #     )
         except Exception as e:
+            return self.extract_with_fallback(url, str(e))
+
+    def extract_with_fallback(self, url: str, prev_error: str) -> WebContent:
+        try:
+            # フォールバック処理: requestsで直接HTML取得
+            response = requests.get(url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+
+            # 自動エンコード判定
+            response.encoding = response.apparent_encoding
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+            title = soup.title.string if soup.title else ""
+            meta_desc = soup.find('meta', {'name': 'description'})
+            description = meta_desc['content'] if meta_desc else ""
+            body_content = '\n'.join([p.get_text() for p in soup.find_all('p')])
+
+            return WebContent(
+                title=title,
+                description=description,
+                main_content=body_content
+            )
+        except Exception as e:
+            # フォールバックも失敗
             return WebContent(
                 title="",
                 description="",
                 main_content="",
-                error=f"エラーが発生しました: {str(e)}"
-            )
+                error=f"フォールバックも失敗しました: {str(e)} (前エラー: {prev_error})"
 
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
