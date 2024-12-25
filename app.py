@@ -101,7 +101,7 @@ class URLContentExtractor:
                     title="",
                     description="",
                     main_content="",
-                    error="URLからのコンテンツ取得に失敗しました（ダウンロードエラー）"
+                    error="URLからのコンテンツ取得に失敗しました"
                 )
             
             content = extract(downloaded, include_comments=False, include_tables=False)
@@ -110,7 +110,7 @@ class URLContentExtractor:
                     title="",
                     description="",
                     main_content="",
-                    error="コンテンツの抽出に失敗しました（解析エラー）"
+                    error="コンテンツの抽出に失敗しました"
                 )
             
             soup = BeautifulSoup(downloaded, 'html.parser')
@@ -123,54 +123,13 @@ class URLContentExtractor:
                 description=description,
                 main_content=content
             )
-        except requests.exceptions.RequestException as e:
-             return WebContent(
-                title="",
-                description="",
-                main_content="",
-                 error=f"URLへの接続エラーが発生しました: {str(e)}"
-            )
         except Exception as e:
             return WebContent(
                 title="",
                 description="",
                 main_content="",
-                error=f"コンテンツ抽出中に予期せぬエラーが発生しました: {str(e)}"
+                error=f"エラーが発生しました: {str(e)}"
             )
-    
-    def extract_with_requests(self, url: str) -> Optional[WebContent]:
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            title = soup.title.string if soup.title else ""
-            meta_desc = soup.find('meta', {'name': 'description'})
-            description = meta_desc['content'] if meta_desc else ""
-            
-            # 全てのテキストコンテンツを取得（HTMLタグを除く）
-            main_content = ' '.join(soup.stripped_strings)
-
-            return WebContent(
-                title=title,
-                description=description,
-                main_content=main_content
-            )
-        except requests.exceptions.RequestException as e:
-            return WebContent(
-                title="",
-                description="",
-                main_content="",
-                error=f"URLへの接続エラーが発生しました: {str(e)}"
-            )
-        except Exception as e:
-            return WebContent(
-                title="",
-                description="",
-                main_content="",
-                error=f"コンテンツ抽出中に予期せぬエラーが発生しました: {str(e)}"
-            )
-
 
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
@@ -233,15 +192,7 @@ class TitleGenerator:
 製品詳細: {content.main_content[:1000]}
 """
             else:
-                content = self.url_extractor.extract_with_requests(product_url)
-                if content and not content.error:
-                    additional_context += f"""
-製品タイトル: {content.title}
-製品説明: {content.description}
-製品詳細: {content.main_content[:1000]}
-"""
-                else:
-                    st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
+                st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
         
         if file_content:
             additional_context += f"""
@@ -674,15 +625,7 @@ def main():
                         st.write("**説明:**", content.description)
                         st.write("**詳細:**", content.main_content[:500] + "...")
                 else:
-                    content = extractor.extract_with_requests(product_url)
-                    if content and not content.error:
-                        st.success("製品情報を取得しました (代替手段)")
-                        with st.expander("取得した製品情報(代替手段)"):
-                            st.write("**タイトル:**", content.title)
-                            st.write("**説明:**", content.description)
-                            st.write("**詳細:**", content.main_content[:500] + "...")
-                    else:
-                        st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
+                    st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
     with col2:
         pain_points = st.text_area("ペインポイント")
     with col3:
