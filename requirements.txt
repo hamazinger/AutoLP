@@ -24,10 +24,7 @@ PyPDF2>=3.0.0
 python-docx>=0.8.11
 
 # LangChain & ChromaDB
-# - 「WebBaseLoader」を使用するためには
-#   十分に新しいバージョンが必要
-# - また、web系の機能にはオプションの依存関係も必要
-langchain>=0.0.200
+langchain==0.0.245
 chromadb>=0.4.15
 
 # embeddings
