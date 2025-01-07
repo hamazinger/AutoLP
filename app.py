@@ -1,130 +1,160 @@
 import os
 os.environ["TRAFILATURA_USE_SIGNAL"] = "false"
 
-# 前のインポートと基本クラス定義は省略...
+# 前のインポートとクラス定義は省略...
 
-class EnhancedContentAnalyzer:
+class ContentReviser:
+    def __init__(self, api_key: str, model: str = "gpt-4"):
+        self.llm = ChatOpenAI(
+            temperature=0,
+            model_name=model,
+            openai_api_key=api_key
+        )
+
+    def revise_content(self, original_content: str, revision_request: str, content_type: str) -> str:
+        prompt_templates = {
+            "title": """
+            あなたはセミナータイトルの編集者です。
+            以下のセミナータイトルを、ユーザーの要望に基づいて修正してください。
+            
+            現在のタイトル：
+            {original_content}
+            
+            修正要望：
+            {revision_request}
+            
+            以下の制約条件を守ってください：
+            - メインタイトルとサブタイトルの形式を維持
+            - 各タイトルは40文字以内
+            - 感嘆符は使用しない
+            """,
+            "headline": """
+            あなたはセミナー見出しの編集者です。
+            以下の見出しを、ユーザーの要望に基づいて修正してください。
+            
+            現在の見出し：
+            {original_content}
+            
+            修正要望：
+            {revision_request}
+            
+            見出しの役割を維持したまま修正してください。
+            """,
+            "body": """
+            あなたはセミナー本文の編集者です。
+            以下の本文を、ユーザーの要望に基づいて修正してください。
+            
+            現在の本文：
+            {original_content}
+            
+            修正要望：
+            {revision_request}
+            
+            以下の制約条件を守ってください：
+            - 見出しの構造を維持
+            - 各セクション300文字以上
+            - 全体で1000文字以内
+            - 箇条書きを使用しない
+            """
+        }
+
+        chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                template=prompt_templates[content_type],
+                input_variables=["original_content", "revision_request"]
+            )
+        )
+
+        try:
+            return chain.run({
+                "original_content": original_content,
+                "revision_request": revision_request
+            })
+        except Exception as e:
+            st.error(f"コンテンツの修正中にエラーが発生しました: {str(e)}")
+            return original_content
+
+class EnhancedTitleGenerator:
     def __init__(self, api_key: str):
         self.llm = ChatOpenAI(
             temperature=0,
             model_name="gpt-4",
             openai_api_key=api_key
         )
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
+        self.data_processor = SeminarDataProcessor()
+
+    def generate_titles(self, context: str, category: str):
+        similar_seminars = self.data_processor.find_similar_seminars(
+            f"{context} {category}",
+            k=3
         )
 
-    def analyze_product_url(self, url: str):
-        try:
-            loader = WebBaseLoader(url)
-            document = loader.load()
-            
-            texts = self.text_splitter.split_documents(document)
-            
-            product_analysis_template = """
-            以下の製品情報から重要な要素を抽出・分析してください：
+        template = """
+        以下の情報を基に、セミナータイトルを生成してください：
 
-            {text}
+        コンテキスト：
+        {context}
 
-            以下の形式でJSONとして出力してください：
-            {
-                "product_name": "製品名",
-                "key_features": ["主要な機能1", "主要な機能2"...],
-                "target_users": ["対象ユーザー1", "対象ユーザー2"...],
-                "pain_points": ["解決する課題1", "解決する課題2"...],
-                "benefits": ["提供価値1", "提供価値2"...],
-                "technical_details": ["技術的特徴1", "技術的特徴2"...]
-            }
-            """
-            
-            prompt = PromptTemplate(
-                template=product_analysis_template,
-                input_variables=["text"]
-            )
-            chain = load_summarize_chain(
-                self.llm,
-                chain_type="map_reduce",
-                map_prompt=prompt,
-                combine_prompt=prompt
-            )
-            
-            return chain.run(texts)
-            
-        except Exception as e:
-            st.error(f"製品情報の分析中にエラーが発生しました: {str(e)}")
-            return None
+        カテゴリ：
+        {category}
 
-    def analyze_pain_points(self, pain_points: str, industry_data: list):
-        pain_point_template = """
-        以下のペインポイントを分析し、業界コンテキストと関連付けてください：
+        過去の類似セミナー：
+        {similar_seminars}
 
-        ペインポイント：
-        {pain_points}
+        以下の特徴を持つ成功しているセミナータイトルの特徴を考慮してください：
+        1. 平均集客速度が{avg_speed}以上
+        2. 平均参加者数が{avg_participants}人以上
+        3. 平均レスポンス率が{avg_response_rate}%以上
 
-        業界データ：
-        {industry_data}
+        生成するタイトルの要件：
+        - メインタイトルとサブタイトルに分ける
+        - メインタイトルでは問題点や課題を投げかける
+        - サブタイトルでは解決策やベネフィットを表現する
+        - 各タイトルは40文字以内
+        - 感嘆符は使用しない
 
-        以下の観点で分析してください：
-        1. 課題の重要度
-        2. 業界での一般性
-        3. 解決の緊急性
-        4. 潜在的な影響範囲
-        5. 類似事例との関連性
-
-        出力形式：
+        以下の形式でJSONを出力してください：
         {
-            "priority_level": "重要度（高/中/低）",
-            "industry_relevance": "業界での一般性の説明",
-            "urgency": "解決の緊急性の説明",
-            "impact_range": "影響範囲の分析",
-            "similar_cases": ["関連する類似事例1", "関連する類似事例2"...],
-            "recommended_approaches": ["推奨アプローチ1", "推奨アプローチ2"...]
+            "titles": [
+                {
+                    "main_title": "メインタイトル1",
+                    "sub_title": "サブタイトル1"
+                },
+                {
+                    "main_title": "メインタイトル2",
+                    "sub_title": "サブタイトル2"
+                },
+                {
+                    "main_title": "メインタイトル3",
+                    "sub_title": "サブタイトル3"
+                }
+            ]
         }
         """
 
         chain = LLMChain(
             llm=self.llm,
             prompt=PromptTemplate(
-                template=pain_point_template,
-                input_variables=["pain_points", "industry_data"]
+                template=template,
+                input_variables=[
+                    "context", "category", "similar_seminars",
+                    "avg_speed", "avg_participants", "avg_response_rate"
+                ]
             )
         )
 
-        return chain.run({
-            "pain_points": pain_points,
-            "industry_data": str(industry_data)
+        result = chain.run({
+            "context": context,
+            "category": category,
+            "similar_seminars": "\n".join([doc.page_content for doc in similar_seminars]),
+            "avg_speed": 2.5,
+            "avg_participants": 35,
+            "avg_response_rate": 50
         })
 
-class SeminarDataProcessor:
-    def __init__(self):
-        self.embeddings = OpenAIEmbeddings()
-        self.vector_store = None
-
-    def process_historical_data(self, df):
-        seminar_texts = []
-        for _, row in df.iterrows():
-            text = f"""
-            タイトル: {row['Seminar_Title']}
-            カテゴリ: {row['Major_Category']}
-            集客速度: {row['Acquisition_Speed']}
-            参加者数: {row['Total_Participants']}
-            レスポンス率: {row['Action_Response_Rate']}
-            """
-            seminar_texts.append(text)
-
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
-        )
-        documents = text_splitter.create_documents(seminar_texts)
-
-        self.vector_store = Chroma.from_documents(
-            documents, 
-            self.embeddings
-        )
-
-    def find_similar_seminars(self, query_text, k=5):
-        if not self.vector_store:
+        try:
+            return json.loads(result)["titles"]
+        except Exception as e:
+            st.error(f"タイトルの生成中にエラーが発生しました: {str(e)}")
             return []
-        return self.vector_store.similarity_search(query_text, k=k)
