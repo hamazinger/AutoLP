@@ -1,21 +1,42 @@
-# requirements.txt
+# ===============================
+# Streamlit
 streamlit>=1.24.0
+
+# BigQuery関連
 google-cloud-bigquery>=3.11.0
 pandas-gbq>=0.19.2
 db-dtypes>=1.1.1
+
+# OpenAI関連
 openai==0.28.0
+
+# データ処理
 pandas>=2.0.0
 numpy>=1.24.0
+
+# HTML/スクレイピング
 beautifulsoup4==4.12.2
 trafilatura>=1.5.0
+requests>=2.28.0
+
+# PDF/Word処理
 PyPDF2>=3.0.0
 python-docx>=0.8.11
-requests>=2.28.0
-langchain>=0.1.0
+
+# LangChain & ChromaDB
+# - 「WebBaseLoader」を使用するためには
+#   十分に新しいバージョンが必要
+# - また、web系の機能にはオプションの依存関係も必要
+langchain>=0.0.200
 chromadb>=0.4.15
+
+# embeddings
 tiktoken>=0.5.1
-# langchain optional dependencies for WebBaseLoader
+openai
+
+# LangChainの WebBaseLoader 用オプション依存関係
 bs4>=0.0.1
 playwright>=1.35.0
 selenium>=4.11.2
 unstructured>=0.10.1
+requests-html>=0.10.0
