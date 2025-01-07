@@ -16,6 +16,7 @@ from PyPDF2 import PdfReader
 from docx import Document
 from google.cloud import bigquery
 from google.oauth2 import service_account
+
 from langchain.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import AnalyzeDocumentChain, LLMChain
@@ -31,7 +32,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 右下の開発者プロフィールリンクやフッター非表示用CSS
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -41,7 +41,6 @@ header {visibility: hidden;}
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# データクラスの定義
 @dataclass
 class WebContent:
     title: str
@@ -108,16 +107,10 @@ class EnhancedContentAnalyzer:
         )
 
     def analyze_product_url(self, url: str):
-        """製品URLの内容を分析して構造化された情報を抽出"""
         try:
-            # WebLoaderを使用してコンテンツを取得
             loader = WebBaseLoader(url)
             document = loader.load()
-            
-            # コンテンツを分析可能なチャンクに分割
             texts = self.text_splitter.split_documents(document)
-            
-            # 製品情報抽出用のプロンプト
             product_analysis_template = """
             以下の製品情報から重要な要素を抽出・分析してください：
 
@@ -133,8 +126,6 @@ class EnhancedContentAnalyzer:
                 "technical_details": ["技術的特徴1", "技術的特徴2"...]
             }
             """
-            
-            # 分析チェーンの作成
             prompt = PromptTemplate(
                 template=product_analysis_template,
                 input_variables=["text"]
@@ -145,15 +136,12 @@ class EnhancedContentAnalyzer:
                 map_prompt=prompt,
                 combine_prompt=prompt
             )
-            
             return chain.run(texts)
-            
         except Exception as e:
             st.error(f"製品情報の分析中にエラーが発生しました: {str(e)}")
             return None
 
     def analyze_pain_points(self, pain_points: str, industry_data: list):
-        """ペインポイントを分析し、業界コンテキストと関連付け"""
         pain_point_template = """
         以下のペインポイントを分析し、業界コンテキストと関連付けてください：
 
@@ -180,7 +168,6 @@ class EnhancedContentAnalyzer:
             "recommended_approaches": ["推奨アプローチ1", "推奨アプローチ2"...]
         }
         """
-
         chain = LLMChain(
             llm=self.llm,
             prompt=PromptTemplate(
@@ -188,7 +175,6 @@ class EnhancedContentAnalyzer:
                 input_variables=["pain_points", "industry_data"]
             )
         )
-
         return chain.run({
             "pain_points": pain_points,
             "industry_data": str(industry_data)
@@ -200,7 +186,6 @@ class SeminarDataProcessor:
         self.vector_store = None
 
     def process_historical_data(self, df):
-        # セミナーデータをテキストに変換
         seminar_texts = []
         for _, row in df.iterrows():
             text = f"""
@@ -211,15 +196,11 @@ class SeminarDataProcessor:
             レスポンス率: {row['Action_Response_Rate']}
             """
             seminar_texts.append(text)
-
-        # テキストを分割
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
         )
         documents = text_splitter.create_documents(seminar_texts)
-
-        # ベクターストアの作成
         self.vector_store = Chroma.from_documents(
             documents, 
             self.embeddings
@@ -284,7 +265,6 @@ class ContentReviser:
             - 箇条書きを使用しない
             """
         }
-
         chain = LLMChain(
             llm=self.llm,
             prompt=PromptTemplate(
@@ -292,7 +272,6 @@ class ContentReviser:
                 input_variables=["original_content", "revision_request"]
             )
         )
-
         try:
             return chain.run({
                 "original_content": original_content,
@@ -312,13 +291,10 @@ class EnhancedTitleGenerator:
         self.data_processor = SeminarDataProcessor()
 
     def generate_titles(self, context: str, category: str):
-        # 類似セミナーの検索
         similar_seminars = self.data_processor.find_similar_seminars(
             f"{context} {category}",
             k=3
         )
-
-        # プロンプトテンプレート
         template = """
         以下の情報を基に、セミナータイトルを生成してください：
 
@@ -361,7 +337,6 @@ class EnhancedTitleGenerator:
             ]
         }
         """
-
         chain = LLMChain(
             llm=self.llm,
             prompt=PromptTemplate(
@@ -372,7 +347,6 @@ class EnhancedTitleGenerator:
                 ]
             )
         )
-
         result = chain.run({
             "context": context,
             "category": category,
@@ -381,7 +355,6 @@ class EnhancedTitleGenerator:
             "avg_participants": 35,
             "avg_response_rate": 50
         })
-
         try:
             return json.loads(result)["titles"]
         except Exception as e:
@@ -389,7 +362,6 @@ class EnhancedTitleGenerator:
             return []
 
 def display_content_with_revision(content: str, content_type: str, reviser: ContentReviser):
-    """修正機能付きでコンテンツを表示するコンポーネント"""
     st.markdown(f"### 生成された{content_type}")
     st.write(content)
     
@@ -399,7 +371,6 @@ def display_content_with_revision(content: str, content_type: str, reviser: Cont
             key=f"revision_{content_type}",
             help="例：「もう少し具体的にしてください」「簡潔にまとめてください」など"
         )
-        
         if st.button("修正する", key=f"revise_{content_type}"):
             with st.spinner("修正中..."):
                 revised_content = reviser.revise_content(content, revision_request, content_type)
@@ -409,8 +380,7 @@ def display_content_with_revision(content: str, content_type: str, reviser: Cont
                 st.write(revised_content)
 
 def get_relevant_industry_data(df):
-    """業界関連データの取得"""
-    return df.to_dict('records')[:10]  # サンプルとして最初の10件を返す
+    return df.to_dict('records')[:10]
 
 def init_session_state():
     if 'generated_titles' not in st.session_state:
@@ -438,6 +408,37 @@ def init_session_state():
     if 'pain_point_analysis' not in st.session_state:
         st.session_state.pain_point_analysis = None
 
+# BigQueryクライアントの初期化
+def init_bigquery_client():
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    return bigquery.Client(credentials=credentials)
+
+def load_seminar_data():
+    client = init_bigquery_client()
+    query = """
+    SELECT 
+        Seminar_Title,
+        Acquisition_Speed,
+        Major_Category,
+        Total_Participants,
+        Action_Response_Rate
+    FROM `mythical-envoy-386309.majisemi.majisemi_seminar_usukiapi`
+    WHERE Seminar_Title IS NOT NULL
+    AND Acquisition_Speed IS NOT NULL
+    """
+    try:
+        df = client.query(query).to_dataframe()
+        if 'Major_Category' not in df.columns:
+            st.error("Major_Categoryカラムが見つかりません")
+            st.write("利用可能なカラム:", df.columns.tolist())
+            return None
+        return df
+    except Exception as e:
+        st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
+        return None
+
 def main():
     init_session_state()
     
@@ -461,7 +462,6 @@ def main():
                     st.session_state.available_categories = sorted(categories)
                     st.session_state.seminar_data = df
                     
-                    # LangChainによるデータ処理の初期化
                     data_processor = SeminarDataProcessor()
                     data_processor.process_historical_data(df)
                     st.session_state.data_processor = data_processor
@@ -506,7 +506,6 @@ def main():
                         st.json(pain_point_analysis)
                     st.session_state.pain_point_analysis = pain_point_analysis
 
-    # タイトル生成と修正UI
     title_generator = EnhancedTitleGenerator(api_key)
     
     if st.button("タイトルを生成"):
