@@ -458,7 +458,7 @@ class HeadlineGenerator:
 """
         # JSONで出力させるための固定指示文
         self.fixed_output_instructions = """
-以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
+以下の形式でJSONを出力してください。余分なテキストは含まれず、JSONオブジェクトのみを出力してください：
 {
     "background": "背景の見出し",
     "problem": "課題の見出し",
@@ -516,7 +516,7 @@ class HeadlineGenerator:
     ) -> str:
         """
         1つの見出し（背景 or 課題 or 解決策）に対して修正指示を反映し、再生成するメソッド。
-        headline_type: 'background', 'problem', 'solution' など
+        headline_type: '背景', '課題', '解決策' など
         JSONで {"new_text": "..."} の形式を返す想定。
         """
         prompt = f"""
@@ -690,13 +690,19 @@ class InMemoryCache:
         st.session_state.title_cache[title] = evaluation
 
 def init_bigquery_client():
-    credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"]
-    )
-    return bigquery.Client(credentials=credentials)
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"]
+        )
+        return bigquery.Client(credentials=credentials)
+    except Exception as e:
+        st.warning("BigQueryの認証情報が設定されていないか、読み込みに失敗しました。BigQueryデータは使用しません。")
+        return None
 
 def load_seminar_data():
     client = init_bigquery_client()
+    if client is None:
+        return None
     
     query = """
     SELECT 
@@ -722,7 +728,7 @@ def load_seminar_data():
             return None
         return df
     except Exception as e:
-        st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
+        st.warning(f"BigQueryからのデータ読み込みに失敗しました: {str(e)}")
         return None
 
 def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
@@ -798,11 +804,12 @@ def init_session_state():
 def main():
     init_session_state()
     
+    # OpenAIのAPIキーを読み込み
     try:
-        api_key = st.secrets["OPENAI_API_KEY"]
-    except KeyError:
-        st.error("OpenAI APIキーが設定されていません")
-        return
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        st.warning("OpenAI APIキーが設定されていません。制限された動作となります。")
+        openai.api_key = "sk-xxx"  # ダミー
     
     st.title("セミナータイトルジェネレーター")
     
@@ -818,15 +825,13 @@ def main():
                     st.success("データを正常に読み込みました！")
                 except Exception as e:
                     st.error(f"カテゴリデータの処理中にエラーが発生しました: {str(e)}")
-                    return
             else:
-                st.error("データの読み込みに失敗しました。")
-                return
+                st.info("セミナーデータを利用しません。")
     
     model_name = "gpt-4o"
-    title_generator = TitleGenerator(api_key, model=model_name)
-    headline_generator = HeadlineGenerator(api_key, model=model_name)
-    body_generator = BodyGenerator(api_key, model=model_name)
+    title_generator = TitleGenerator(openai.api_key, model=model_name)
+    headline_generator = HeadlineGenerator(openai.api_key, model=model_name)
+    body_generator = BodyGenerator(openai.api_key, model=model_name)
     cache = InMemoryCache()
     
     st.header("Step 1: 基本情報入力")
@@ -849,11 +854,15 @@ def main():
     with col2:
         pain_points = st.text_area("ペインポイント")
     with col3:
-        category = st.selectbox(
-            "カテゴリ",
-            options=st.session_state.available_categories
-        )
-        st.session_state.selected_category = category
+        if st.session_state.available_categories:
+            category = st.selectbox(
+                "カテゴリ",
+                options=st.session_state.available_categories
+            )
+            st.session_state.selected_category = category
+        else:
+            st.session_state.selected_category = None
+            st.write("カテゴリデータはありません")
 
     uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
     file_content = ""
@@ -888,7 +897,7 @@ def main():
         st.session_state.title_revision_instructions = ""  # 新規生成のタイミングで修正指示をリセット
         context = f"""
 ペインポイント: {pain_points}
-カテゴリ: {category}
+カテゴリ: {st.session_state.selected_category}
 """
         with st.spinner("タイトルを生成中..."):
             try:
@@ -908,7 +917,7 @@ def main():
                     if cached_eval:
                         evaluation = cached_eval
                     else:
-                        analysis = st.session_state.evaluator.evaluate_title(full_title, category)
+                        analysis = st.session_state.evaluator.evaluate_title(full_title, st.session_state.selected_category)
                         evaluation = TitleEvaluation(
                             speed=analysis.predicted_speed,
                             grade=analysis.grade,
@@ -940,14 +949,14 @@ def main():
                 st.write(f"**評価コメント:** {gen_title.evaluation.comment}")
 
                 # 評価詳細表示
-                display_button = st.checkbox(f"詳細評価を見る (#{i+1})", key=f"detail_{i}")
+                display_button = st.checkbox(f"詳細評価を見る (#{i+1})", key=f"detail_{i}_check")
                 if display_button:
                     display_evaluation_details(full_title, st.session_state.evaluator)
 
                 # 個別タイトル修正
-                revision_text = st.text_area(
+                revision_text_single = st.text_area(
                     f"このタイトル(#{i+1})への修正指示",
-                    key=f"revise_instruction_title_{i}",
+                    key=f"revise_instruction_single_title_{i}",
                     height=80
                 )
                 if st.button(f"このタイトルだけ再生成 (#{i+1})", key=f"revise_single_title_{i}"):
@@ -955,7 +964,7 @@ def main():
                         revised = title_generator.revise_single_title(
                             original_main=gen_title.main_title,
                             original_sub=gen_title.sub_title,
-                            revision_instructions=revision_text
+                            revision_instructions=revision_text_single
                         )
                         # 再生成したタイトルに対して再評価
                         new_main = revised.get("main_title", gen_title.main_title)
@@ -978,8 +987,8 @@ def main():
         st.subheader("手動タイトル評価の追加")
         col_a, col_b = st.columns([4, 1])
         with col_a:
-            manual_main_title = st.text_input("メインタイトル", key="manual_main_title")
-            manual_sub_title = st.text_input("サブタイトル", key="manual_sub_title")
+            manual_main_title = st.text_input("メインタイトル (手動)", key="manual_main_title_input")
+            manual_sub_title = st.text_input("サブタイトル (手動)", key="manual_sub_title_input")
         with col_b:
             if st.button("評価する", key="evaluate_manual"):
                 if not manual_main_title:
@@ -1051,16 +1060,16 @@ def main():
 
         if st.session_state.manual_headlines:
             st.subheader("生成された見出し（個別修正可能）")
-            # 見出しの個別修正
+
             # 背景
             st.write("#### 背景")
             background_text = st.text_area(
                 "背景の見出し",
                 value=st.session_state.manual_headlines.background,
-                key="edit_background",
+                key="edit_background_textarea",
                 height=100
             )
-            revise_bg = st.text_area("背景への修正指示", key="revise_background_instructions", height=60)
+            revise_bg = st.text_area("背景への修正指示", key="revise_background_instructions_uniq", height=60)
             if st.button("この背景だけ再生成", key="revise_background_btn"):
                 with st.spinner("背景を修正中..."):
                     new_bg = headline_generator.revise_single_headline(
@@ -1076,10 +1085,10 @@ def main():
             problem_text = st.text_area(
                 "課題の見出し",
                 value=st.session_state.manual_headlines.problem,
-                key="edit_problem",
+                key="edit_problem_textarea",
                 height=100
             )
-            revise_pb = st.text_area("課題への修正指示", key="revise_problem_instructions", height=60)
+            revise_pb = st.text_area("課題への修正指示", key="revise_problem_instructions_uniq", height=60)
             if st.button("この課題だけ再生成", key="revise_problem_btn"):
                 with st.spinner("課題を修正中..."):
                     new_pb = headline_generator.revise_single_headline(
@@ -1095,10 +1104,10 @@ def main():
             solution_text = st.text_area(
                 "解決策の見出し",
                 value=st.session_state.manual_headlines.solution,
-                key="edit_solution",
+                key="edit_solution_textarea",
                 height=100
             )
-            revise_sol = st.text_area("解決策への修正指示", key="revise_solution_instructions", height=60)
+            revise_sol = st.text_area("解決策への修正指示", key="revise_solution_instructions_uniq", height=60)
             if st.button("この解決策だけ再生成", key="revise_solution_btn"):
                 with st.spinner("解決策を修正中..."):
                     new_sol = headline_generator.revise_single_headline(
@@ -1137,13 +1146,11 @@ def main():
                 st.subheader("生成された本文（セクションごとに修正可能）")
 
                 # ここでは簡易的に「#### 」区切りで3セクションに分ける想定
-                # 実際には本文の構造によってパース方法を変える必要あり
                 sections = st.session_state.generated_body.split("#### ")
-                # セクションが足りない場合は埋めておく
                 while len(sections) < 4:
-                    sections.append("")
-                # sections[0] は先頭文 or 空文字列となりがちなので無視
-                # background, problem, solutionの順と想定
+                    sections.append("")  # セクション不足なら補填
+                
+                # [0]は前置き部分になることが多いので、[1],[2],[3]を背景/課題/解決策とみなす
                 background_section = sections[1] if len(sections) > 1 else ""
                 problem_section = sections[2] if len(sections) > 2 else ""
                 solution_section = sections[3] if len(sections) > 3 else ""
@@ -1153,11 +1160,11 @@ def main():
                 st.session_state.body_section_background = st.text_area(
                     "背景本文",
                     value=background_section,
-                    key="body_bg_text",
+                    key="body_bg_textarea_uniq",
                     height=200
                 )
-                revise_bg_body = st.text_area("背景本文への修正指示", key="revise_bg_body_instructions", height=60)
-                if st.button("この背景本文だけ再生成"):
+                revise_bg_body = st.text_area("背景本文への修正指示", key="revise_bg_body_instructions_uniq", height=60)
+                if st.button("この背景本文だけ再生成", key="revise_bg_body_btn"):
                     with st.spinner("背景本文を修正中..."):
                         new_bg_body = body_generator.revise_single_body_section(
                             original_text=st.session_state.body_section_background,
@@ -1172,11 +1179,11 @@ def main():
                 st.session_state.body_section_problem = st.text_area(
                     "課題本文",
                     value=problem_section,
-                    key="body_pb_text",
+                    key="body_pb_textarea_uniq",
                     height=200
                 )
-                revise_pb_body = st.text_area("課題本文への修正指示", key="revise_pb_body_instructions", height=60)
-                if st.button("この課題本文だけ再生成"):
+                revise_pb_body = st.text_area("課題本文への修正指示", key="revise_pb_body_instructions_uniq", height=60)
+                if st.button("この課題本文だけ再生成", key="revise_pb_body_btn"):
                     with st.spinner("課題本文を修正中..."):
                         new_pb_body = body_generator.revise_single_body_section(
                             original_text=st.session_state.body_section_problem,
@@ -1191,11 +1198,11 @@ def main():
                 st.session_state.body_section_solution = st.text_area(
                     "解決策本文",
                     value=solution_section,
-                    key="body_sol_text",
+                    key="body_sol_textarea_uniq",
                     height=200
                 )
-                revise_sol_body = st.text_area("解決策本文への修正指示", key="revise_sol_body_instructions", height=60)
-                if st.button("この解決策本文だけ再生成"):
+                revise_sol_body = st.text_area("解決策本文への修正指示", key="revise_sol_body_instructions_uniq", height=60)
+                if st.button("この解決策本文だけ再生成", key="revise_sol_body_btn"):
                     with st.spinner("解決策本文を修正中..."):
                         new_sol_body = body_generator.revise_single_body_section(
                             original_text=st.session_state.body_section_solution,
@@ -1206,7 +1213,7 @@ def main():
                         st.success("解決策本文を修正しました！")
 
                 # 再構築ボタン
-                if st.button("修正済みセクションを統合して本文を表示"):
+                if st.button("修正済みセクションを統合して本文を表示", key="integrate_sections_btn"):
                     new_full_body = f"#### {st.session_state.body_section_background}\n\n#### {st.session_state.body_section_problem}\n\n#### {st.session_state.body_section_solution}"
                     st.session_state.generated_body = new_full_body
                     st.subheader("最終的な本文")
