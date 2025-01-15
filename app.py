@@ -276,53 +276,53 @@ class TitleGenerator:
             return []
 
         def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
-        refine_prompt = f"""
-# 指示
-提示されたメインタイトルとサブタイトルを、以下の要望に従って修正してください。
-
-# メインタイトル
-{main_title}
-
-# サブタイトル
-{sub_title}
-
-# 要望
-{prompt}
-
-# 制約条件
-- メインタイトルとサブタイトルに分ける
-- メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
-- 感嘆符（！）は使用しない
-
-# 出力形式
-修正後のメインタイトルとサブタイトルを以下のJSON形式で出力してください。
-{{
-  "main_title": "修正後のメインタイトル",
-  "sub_title": "修正後のサブタイトル"
-}}
-"""
-        try:
-            response = openai.ChatCompletion.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": refine_prompt}
-                ],
-                temperature=0
-            )
-            result_text = response.choices[0].message['content'].strip()
-            print(f"APIレスポンス (生): {result_text}")  # ← ログ出力：APIからの生のレスポンスを確認
-
+            refine_prompt = f"""
+    # 指示
+    提示されたメインタイトルとサブタイトルを、以下の要望に従って修正してください。
+    
+    # メインタイトル
+    {main_title}
+    
+    # サブタイトル
+    {sub_title}
+    
+    # 要望
+    {prompt}
+    
+    # 制約条件
+    - メインタイトルとサブタイトルに分ける
+    - メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
+    - 感嘆符（！）は使用しない
+    
+    # 出力形式
+    修正後のメインタイトルとサブタイトルを以下のJSON形式で出力してください。
+    {{
+      "main_title": "修正後のメインタイトル",
+      "sub_title": "修正後のサブタイトル"
+    }}
+    """
             try:
-                refined_title = json.loads(result_text)
-                return refined_title
-            except json.JSONDecodeError as e:
-                st.error(f"修正タイトルのJSON解析に失敗しました: ```json\n{result_text}\n```")
-                print(f"JSONデコードエラー詳細: {e}") # ← ログ出力：JSONデコードエラーの詳細を確認
+                response = openai.ChatCompletion.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                        {"role": "user", "content": refine_prompt}
+                    ],
+                    temperature=0
+                )
+                result_text = response.choices[0].message['content'].strip()
+                print(f"APIレスポンス (生): {result_text}")  # ← ログ出力：APIからの生のレスポンスを確認
+    
+                try:
+                    refined_title = json.loads(result_text)
+                    return refined_title
+                except json.JSONDecodeError as e:
+                    st.error(f"修正タイトルのJSON解析に失敗しました: ```json\n{result_text}\n```")
+                    print(f"JSONデコードエラー詳細: {e}") # ← ログ出力：JSONデコードエラーの詳細を確認
+                    return None
+            except Exception as e:
+                st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
                 return None
-        except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
-            return None
 
 
 class SeminarTitleEvaluator:
