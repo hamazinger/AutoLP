@@ -301,7 +301,8 @@ class TitleGenerator:
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
 
-        llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=openai.api_key) # 修正: ChatOpenAI を使用
+        # llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=openai.api_key) # 修正: ChatOpenAI を使用
+        llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=self.client.api_key)
         chain = LLMChain(llm=llm, prompt=prompt_template)
 
         try:
