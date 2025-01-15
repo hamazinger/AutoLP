@@ -16,6 +16,7 @@ from PyPDF2 import PdfReader
 from docx import Document
 from google.cloud import bigquery
 from google.oauth2 import service_account
+import re
 
 # Streamlitのページ設定を最初に記述
 st.set_page_config(
@@ -310,8 +311,12 @@ class TitleGenerator:
                 ],
                 temperature=0
             )
-            result_text = response.choices[0].message['content'].strip()
-            print(f"APIレスポンス (生): {result_text}")  # ← ログ出力：APIからの生のレスポンスを確認
+            # result_text = response.choices[0].message['content'].strip()
+            result_text = response.choices[0].message['content']
+            result_text = re.sub(r'^\s+|\s+$', '', result_text) # ← 追加：正規表現でトリム
+            print(f"APIレスポンス (トリム後): {result_text}") # 確認用ログ
+            
+            # print(f"APIレスポンス (生): {result_text}")  # ← ログ出力：APIからの生のレスポンスを確認
     
             try:
                 refined_title = json.loads(result_text)
