@@ -814,7 +814,7 @@ def main():
             with cols[5]:
                 st.write(f"**評価:** {gen_title.evaluation.comment}")
             with cols[6]:
-                修正プロンプト = st.text_area("修正依頼", key=f"refine_prompt_{i}", height=50, label_visibility="collapsed", placeholder="例：もっと具体的に")
+                修正プロンプト = st.text_area("修正依頼", key=f"refine_prompt_{i}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
                 if st.button("修正", key=f"refine_button_{i}"):
                     with st.spinner("タイトル修正中..."):
                         refined_title = title_generator.refine_title(gen_title.main_title, gen_title.sub_title, 修正プロンプト)
