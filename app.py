@@ -87,24 +87,55 @@ class HeadlineSet:
             solution=data.get("solution", "")
         )
 
-# 修正履歴を管理するクラスを追加
-class RevisionHistory:
-    def __init__(self):
-        self.revisions = []
-    
-    def add_revision(self, original_content: str, revision_prompt: str, revised_content: str):
-        self.revisions.append({
-            "original": original_content,
-            "prompt": revision_prompt,
-            "revised": revised_content,
-            "timestamp": datetime.now().isoformat()
+# 修正履歴付きタイトルクラス
+class GeneratedTitleWithRevision:
+    def __init__(self, main_title: str, sub_title: str, evaluation: TitleEvaluation):
+        self.main_title = main_title
+        self.sub_title = sub_title
+        self.evaluation = evaluation
+        self.revision_history = []
+
+    def add_revision(self, revision_request: str, revised_main: str, revised_sub: str):
+        self.revision_history.append({
+            'request': revision_request,
+            'original_main': self.main_title,
+            'original_sub': self.sub_title,
+            'revised_main': revised_main,
+            'revised_sub': revised_sub,
+            'timestamp': datetime.now().isoformat()
         })
-    
-    def get_latest_revision(self):
-        return self.revisions[-1] if self.revisions else None
-    
-    def get_all_revisions(self):
-        return self.revisions
+        self.main_title = revised_main
+        self.sub_title = revised_sub
+
+# 見出し修正履歴クラス
+class HeadlineRevision:
+    def __init__(self, headline: HeadlineSet):
+        self.current = headline
+        self.revision_history = []
+
+    def add_revision(self, revision_request: str, revised_headline: HeadlineSet):
+        self.revision_history.append({
+            'request': revision_request,
+            'original': self.current,
+            'revised': revised_headline,
+            'timestamp': datetime.now().isoformat()
+        })
+        self.current = revised_headline
+
+# 本文修正履歴クラス
+class BodyRevision:
+    def __init__(self, body: str):
+        self.current = body
+        self.revision_history = []
+
+    def add_revision(self, revision_request: str, revised_body: str):
+        self.revision_history.append({
+            'request': revision_request,
+            'original': self.current,
+            'revised': revised_body,
+            'timestamp': datetime.now().isoformat()
+        })
+        self.current = revised_body
 
 class URLContentExtractor:
     def __init__(self):
@@ -183,14 +214,6 @@ class TitleGenerator:
         {
             "main_title": "メインタイトル1",
             "sub_title": "サブタイトル1"
-        },
-        {
-            "main_title": "メインタイトル2",
-            "sub_title": "サブタイトル2"
-        },
-        {
-            "main_title": "メインタイトル3",
-            "sub_title": "サブタイトル3"
         }
     ]
 }
@@ -199,11 +222,12 @@ class TitleGenerator:
     def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
         additional_context = self._prepare_additional_context(product_url, file_content)
         prompt = self._build_prompt(context, additional_context, prompt_template)
-        return self._execute_generation(prompt)
+        return self._execute_generation(prompt, num_titles=3)
 
-    def revise_titles(self, original_titles: List[Dict[str, str]], revision_request: str) -> List[Dict[str, str]]:
-        revision_prompt = self._build_revision_prompt(original_titles[0], revision_request)
-        return self._execute_generation(revision_prompt)
+    def revise_title(self, original_title: Dict[str, str], revision_request: str) -> Dict[str, str]:
+        revision_prompt = self._build_revision_prompt(original_title, revision_request)
+        results = self._execute_generation(revision_prompt, num_titles=1)
+        return results[0] if results else None
 
     def _prepare_additional_context(self, product_url: str = None, file_content: str = None) -> str:
         additional_context = ""
@@ -236,7 +260,7 @@ class TitleGenerator:
             sub_title=original_title["sub_title"]
         ) + self.fixed_output_instructions
 
-    def _execute_generation(self, prompt: str) -> List[Dict[str, str]]:
+    def _execute_generation(self, prompt: str, num_titles: int = 1) -> List[Dict[str, str]]:
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
@@ -267,7 +291,7 @@ class TitleGenerator:
             if not isinstance(titles, list) or not titles:
                 raise ValueError("タイトルが見つかりません")
             
-            return titles[:3]
+            return titles[:num_titles]
                 
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
@@ -278,7 +302,7 @@ class HeadlineGenerator:
         openai.api_key = api_key
         self.model = model
         self.fixed_prompt_part = """
-「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。」
+『{title}』というタイトルのイベントを企画しており、その告知文を作成します。告知文を作成する前に、以下の内容でその見出しを作成してください。見出しは簡潔な文章としてください。
 """
         self.user_editable_prompt = """
 見出し1：このセミナーを開催する、社会や企業の背景
@@ -310,9 +334,9 @@ class HeadlineGenerator:
         prompt = self._build_prompt(title, prompt_template)
         return self._execute_generation(prompt)
 
-    def revise_headlines(self, original_headlines: HeadlineSet, revision_request: str) -> HeadlineSet:
+    def revise_headline(self, headlines: HeadlineSet, revision_request: str) -> HeadlineSet:
         """修正要望に基づいて見出しを修正"""
-        revision_prompt = self._build_revision_prompt(original_headlines, revision_request)
+        revision_prompt = self._build_revision_prompt(headlines, revision_request)
         return self._execute_generation(revision_prompt)
 
     def _build_prompt(self, title: str, prompt_template: str = None) -> str:
@@ -363,9 +387,9 @@ class BodyGenerator:
 - 各見出しは本文中に明示してください。明確に見出しであることがわかるマークダウンの書式（見出しレベル4）を用いてください。
 
 タイトル：「{title}」
-{background}
-{problem}」
-{solution}
+背景：{background}
+課題：{problem}
+解決策：{solution}
 """
         self.user_editable_prompt = """
 以下の制約条件と入力情報を踏まえて本文を生成してください。
@@ -380,10 +404,10 @@ class BodyGenerator:
 - あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
 """
         self.revision_prompt_template = """
-前回生成した本文に対して、以下の修正要望が来ています：
+現在の本文に対して、以下の修正要望が来ています：
 {revision_request}
 
-前回生成した本文：
+前回の本文：
 {previous_body}
 
 この修正要望を踏まえて、本文を改善してください。なお、先ほどの制約条件は依然として有効です。
@@ -643,18 +667,106 @@ def init_session_state():
         'body_prompt': BodyGenerator("dummy_key").user_editable_prompt,
         'generated_body': None,
         'manual_headlines': None,
-        'title_revisions': RevisionHistory(),
-        'headline_revisions': RevisionHistory(),
-        'body_revisions': RevisionHistory(),
+        'title_revisions': {},
+        'headline_revisions': {},
+        'body_revisions': {},
     }
     
     for key, initial_value in initial_states.items():
         if key not in st.session_state:
             st.session_state[key] = initial_value
 
+def display_generated_title(i: int, title: GeneratedTitleWithRevision, title_generator, category, evaluator):
+    """生成されたタイトルとその修正UIを表示"""
+    cols = st.columns([0.5, 2, 2, 1, 1, 2])
+    with cols[0]:
+        if st.radio(
+            "選択",
+            ["✓"],
+            key=f"radio_{i}",
+            label_visibility="collapsed"
+        ):
+            st.session_state.selected_title = f"{title.main_title} - {title.sub_title}"
+    with cols[1]:
+        st.write(f"**メインタイトル:** {title.main_title}")
+    with cols[2]:
+        st.write(f"**サブタイトル:** {title.sub_title}")
+    with cols[3]:
+        st.metric("集客速度", f"{title.evaluation.speed:.1f}")
+    with cols[4]:
+        grade_colors = {"A": "green", "B": "orange", "C": "red"}
+        grade_color = grade_colors.get(title.evaluation.grade, "gray")
+        st.markdown(
+            f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {title.evaluation.grade}</p>',
+            unsafe_allow_html=True
+        )
+    with cols[5]:
+        st.write(f"**評価:** {title.evaluation.comment}")
+
+    # 個別の修正セクション
+    with st.expander(f"このタイトルを修正", expanded=False):
+        revision_request = st.text_area(
+            "修正要望を入力してください",
+            key=f"title_revision_{i}",
+            help="例: もっと具体的な課題を入れて、解決策をより明確に"
+        )
+        if st.button("修正する", key=f"revise_title_{i}"):
+            with st.spinner("タイトルを修正中..."):
+                try:
+                    revised_title = title_generator.revise_title(
+                        {"main_title": title.main_title, "sub_title": title.sub_title},
+                        revision_request
+                    )
+                    if revised_title:
+                        title.add_revision(
+                            revision_request,
+                            revised_title["main_title"],
+                            revised_title["sub_title"]
+                        )
+                        
+                        # 評価の更新
+                        full_title = f"{revised_title['main_title']} - {revised_title['sub_title']}"
+                        analysis = evaluator.evaluate_title(full_title, category)
+                        title.evaluation = TitleEvaluation(
+                            speed=analysis.predicted_speed,
+                            grade=analysis.grade,
+                            comment=analysis.evaluation_comment
+                        )
+                        st.success("タイトルを修正しました！")
+                        st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {str(e)}")
+
+        # 修正履歴の表示
+        if title.revision_history:
+            st.write("#### 修正履歴")
+            for idx, revision in enumerate(title.revision_history, 1):
+                with st.expander(f"修正 {idx}"):
+                    st.write(f"**修正要望:** {revision['request']}")
+                    st.write(f"**修正前:** {revision['original_main']} - {revision['original_sub']}")
+                    st.write(f"**修正後:** {revision['revised_main']} - {revision['revised_sub']}")
+
+def display_headline_section(headline: HeadlineSet, section_key: str):
+    """見出しセクションとその修正UIを表示"""
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.text_area(
+            section_key.capitalize(),
+            value=getattr(headline, section_key.lower()),
+            key=f"edit_{section_key}",
+            disabled=True
+        )
+    with col2:
+        revision_request = st.text_area(
+            "修正要望",
+            key=f"headline_revision_{section_key}",
+            help="例: より具体的に、明確に"
+        )
+        return revision_request
+
 def main():
     init_session_state()
-
+    
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
@@ -689,7 +801,7 @@ def main():
     cache = InMemoryCache()
 
     st.header("Step 1: 基本情報入力")
-
+    
     # 入力フォーム
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
@@ -706,8 +818,10 @@ def main():
                         st.write("**詳細:**", content.main_content[:500] + "...")
                 else:
                     st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
+    
     with col2:
         pain_points = st.text_area("ペインポイント")
+    
     with col3:
         category = st.selectbox(
             "カテゴリ",
@@ -760,114 +874,34 @@ def main():
                     file_content
                 )
                 st.session_state.generated_titles = []
-                for title in titles:
-                    main_title = title.get("main_title", "")
-                    sub_title = title.get("sub_title", "")
+                for title_data in titles:
+                    main_title = title_data.get("main_title", "")
+                    sub_title = title_data.get("sub_title", "")
                     full_title = f"{main_title} - {sub_title}"
-                    cached_eval = cache.get_evaluation(full_title)
-                    if cached_eval:
-                        evaluation = cached_eval
-                    else:
-                        analysis = st.session_state.evaluator.evaluate_title(full_title, category)
-                        evaluation = TitleEvaluation(
-                            speed=analysis.predicted_speed,
-                            grade=analysis.grade,
-                            comment=analysis.evaluation_comment
-                        )
-                        cache.set_evaluation(full_title, evaluation)
-                    st.session_state.generated_titles.append(
-                        GeneratedTitle(main_title=main_title, sub_title=sub_title, evaluation=evaluation)
+                    
+                    analysis = st.session_state.evaluator.evaluate_title(full_title, category)
+                    evaluation = TitleEvaluation(
+                        speed=analysis.predicted_speed,
+                        grade=analysis.grade,
+                        comment=analysis.evaluation_comment
                     )
+                    
+                    title_with_revision = GeneratedTitleWithRevision(main_title, sub_title, evaluation)
+                    st.session_state.generated_titles.append(title_with_revision)
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
 
-    # タイトル選択・修正セクション
+    # タイトル表示・修正セクション
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
-
-        st.subheader("生成タイトル")
-        for i, gen_title in enumerate(st.session_state.generated_titles):
-            cols = st.columns([0.5, 2, 2, 1, 1, 2])
-            with cols[0]:
-                if st.radio(
-                    "選択",
-                    ["✓"],
-                    key=f"radio_{i}",
-                    label_visibility="collapsed"
-                ):
-                    st.session_state.selected_title = f"{gen_title.main_title} - {gen_title.sub_title}"
-            with cols[1]:
-                st.write(f"**メインタイトル:** {gen_title.main_title}")
-            with cols[2]:
-                st.write(f"**サブタイトル:** {gen_title.sub_title}")
-            with cols[3]:
-                st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
-            with cols[4]:
-                grade_colors = {"A": "green", "B": "orange", "C": "red"}
-                grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
-                st.markdown(
-                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
-                    unsafe_allow_html=True
-                )
-            with cols[5]:
-                st.write(f"**評価:** {gen_title.evaluation.comment}")
-
-        # タイトル修正セクション
-        st.subheader("タイトル修正")
-        revision_request = st.text_area(
-            "タイトルの修正要望を入力してください",
-            key="title_revision_request",
-            help="例: もっと具体的な課題を入れて、解決策をより明確に"
-        )
-        if st.button("タイトルを修正", key="revise_titles"):
-            with st.spinner("タイトルを修正中..."):
-                if st.session_state.generated_titles:
-                    original_titles = [
-                        {"main_title": t.main_title, "sub_title": t.sub_title}
-                        for t in st.session_state.generated_titles
-                    ]
-                    revised_titles = title_generator.revise_titles(original_titles, revision_request)
-
-                    # 修正履歴の保存
-                    st.session_state.title_revisions.add_revision(
-                        str(original_titles),
-                        revision_request,
-                        str(revised_titles)
-                    )
-
-                    # 生成タイトルの更新
-                    st.session_state.generated_titles = []
-                    for title in revised_titles:
-                        main_title = title.get("main_title", "")
-                        sub_title = title.get("sub_title", "")
-                        full_title = f"{main_title} - {sub_title}"
-                        analysis = st.session_state.evaluator.evaluate_title(full_title, category)
-                        evaluation = TitleEvaluation(
-                            speed=analysis.predicted_speed,
-                            grade=analysis.grade,
-                            comment=analysis.evaluation_comment
-                        )
-                        st.session_state.generated_titles.append(
-                            GeneratedTitle(main_title=main_title, sub_title=sub_title, evaluation=evaluation)
-                        )
-                    st.success("タイトルを修正しました！")
-                else:
-                    st.error("修正するタイトルがありません。")
+        
+        for i, title in enumerate(st.session_state.generated_titles):
+            display_generated_title(i, title, title_generator, category, st.session_state.evaluator)
 
         # 見出し生成セクション
-        if st.session_state.generated_titles:
+        if st.session_state.selected_title:
             st.header("Step 3: 見出し生成")
-
-            available_titles = []
-            for gen_title in st.session_state.generated_titles:
-                full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
-                available_titles.append(full_title)
-
-            st.session_state.selected_title_for_headline = st.selectbox(
-                "見出しを生成するタイトルを選択してください",
-                options=available_titles
-            )
-
+            
             with st.expander("見出し生成プロンプトの編集", expanded=False):
                 st.session_state.headline_prompt = st.text_area(
                     "プロンプトテンプレート",
@@ -879,70 +913,75 @@ def main():
                 with st.spinner("見出しを生成中..."):
                     try:
                         headlines = headline_generator.generate_headlines(
-                            st.session_state.selected_title_for_headline,
+                            st.session_state.selected_title,
                             st.session_state.headline_prompt
                         )
-                        st.session_state.headlines = headlines
-                        st.session_state.manual_headlines = headlines
+                        st.session_state.headlines = HeadlineRevision(headlines)
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
 
-            # 見出し修正セクション
-            if st.session_state.manual_headlines:
-                st.subheader("生成された見出し（編集可能）")
-
-                background = st.text_area(
-                    "背景",
-                    value=st.session_state.manual_headlines.background,
-                    key="edit_background"
-                )
-                problem = st.text_area(
-                    "課題",
-                    value=st.session_state.manual_headlines.problem,
-                    key="edit_problem"
-                )
-                solution = st.text_area(
-                    "解決策",
-                    value=st.session_state.manual_headlines.solution,
-                    key="edit_solution"
-                )
-
-                st.session_state.manual_headlines = HeadlineSet(
-                    background=background,
-                    problem=problem,
-                    solution=solution
-                )
-
-                # 見出し修正要望
-                headline_revision_request = st.text_area(
-                    "見出しの修正要望を入力してください",
-                    key="headline_revision_request",
-                    help="例: 背景をより具体的に、課題をより明確に"
-                )
-
-                if st.button("見出しを修正", key="revise_headlines"):
-                    with st.spinner("見出しを修正中..."):
-                        try:
-                            revised_headlines = headline_generator.revise_headlines(
-                                st.session_state.manual_headlines,
-                                headline_revision_request
-                            )
-
-                            # 修正履歴の保存
-                            st.session_state.headline_revisions.add_revision(
-                                str(st.session_state.manual_headlines),
-                                headline_revision_request,
-                                str(revised_headlines)
-                            )
-
-                            st.session_state.manual_headlines = revised_headlines
-                            st.success("見出しを修正しました！")
-                        except Exception as e:
-                            st.error(f"エラーが発生しました: {str(e)}")
+            # 見出し表示・修正セクション
+            if st.session_state.headlines:
+                st.subheader("生成された見出し")
+                headlines = st.session_state.headlines.current
+                
+                background_request = display_headline_section(headlines, "background")
+                problem_request = display_headline_section(headlines, "problem")
+                solution_request = display_headline_section(headlines, "solution")
+                
+                # 見出しの個別修正ボタン
+                cols = st.columns(3)
+                with cols[0]:
+                    if st.button("背景を修正", key="revise_background"):
+                        with st.spinner("背景を修正中..."):
+                            try:
+                                revised_headlines = headline_generator.revise_headline(
+                                    headlines,
+                                    f"背景について: {background_request}"
+                                )
+                                st.session_state.headlines.add_revision(
+                                    background_request,
+                                    revised_headlines
+                                )
+                                st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {str(e)}")
+                
+                with cols[1]:
+                    if st.button("課題を修正", key="revise_problem"):
+                        with st.spinner("課題を修正中..."):
+                            try:
+                                revised_headlines = headline_generator.revise_headline(
+                                    headlines,
+                                    f"課題について: {problem_request}"
+                                )
+                                st.session_state.headlines.add_revision(
+                                    problem_request,
+                                    revised_headlines
+                                )
+                                st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {str(e)}")
+                
+                with cols[2]:
+                    if st.button("解決策を修正", key="revise_solution"):
+                        with st.spinner("解決策を修正中..."):
+                            try:
+                                revised_headlines = headline_generator.revise_headline(
+                                    headlines,
+                                    f"解決策について: {solution_request}"
+                                )
+                                st.session_state.headlines.add_revision(
+                                    solution_request,
+                                    revised_headlines
+                                )
+                                st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {str(e)}")
 
                 # 本文生成セクション
                 st.header("Step 4: 本文生成")
-
+                
                 with st.expander("本文生成プロンプトの編集", expanded=False):
                     st.session_state.body_prompt = st.text_area(
                         "本文生成プロンプトテンプレート",
@@ -953,58 +992,99 @@ def main():
                 if st.button("本文を生成", key="generate_body"):
                     with st.spinner("本文を生成中..."):
                         try:
-                            st.session_state.generated_body = body_generator.generate_body(
-                                st.session_state.selected_title_for_headline,
-                                st.session_state.manual_headlines,
+                            body = body_generator.generate_body(
+                                st.session_state.selected_title,
+                                st.session_state.headlines.current,
                                 st.session_state.body_prompt
                             )
+                            st.session_state.generated_body = BodyRevision(body)
+                            st.success("本文を生成しました！")
                         except Exception as e:
                             st.error(f"エラーが発生しました: {str(e)}")
 
                 # 本文表示・修正セクション
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
-                    st.write(st.session_state.generated_body)
-
-                    # 本文修正要望
-                    body_revision_request = st.text_area(
-                        "本文の修正要望を入力してください",
-                        key="body_revision_request",
-                        help="例: もう少し具体的な事例を入れて、ベネフィットをより明確に"
-                    )
-
-                    if st.button("本文を修正", key="revise_body"):
-                        with st.spinner("本文を修正中..."):
-                            try:
-                                revised_body = body_generator.revise_body(
-                                    st.session_state.selected_title_for_headline,
-                                    st.session_state.manual_headlines,
-                                    st.session_state.generated_body,
-                                    body_revision_request
+                    
+                    # 本文を段落ごとに分割して表示・修正
+                    paragraphs = st.session_state.generated_body.current.split('\n\n')
+                    for i, paragraph in enumerate(paragraphs):
+                        if paragraph.strip():
+                            with st.expander(f"段落 {i+1}", expanded=True):
+                                st.write(paragraph)
+                                
+                                revision_request = st.text_area(
+                                    "この段落の修正要望",
+                                    key=f"paragraph_revision_{i}",
+                                    help="例: より具体的な例を追加、表現を分かりやすく"
                                 )
+                                
+                                if st.button(f"この段落を修正", key=f"revise_paragraph_{i}"):
+                                    with st.spinner("段落を修正中..."):
+                                        try:
+                                            # 段落修正用のプロンプトを作成
+                                            specific_request = f"""
+以下の段落を修正してください:
+{paragraph}
 
-                                # 修正履歴の保存
-                                st.session_state.body_revisions.add_revision(
-                                    st.session_state.generated_body,
-                                    body_revision_request,
-                                    revised_body
-                                )
-
-                                st.session_state.generated_body = revised_body
-                                st.success("本文を修正しました！")
-
-                                # 修正後の本文を表示
-                                st.subheader("修正後の本文")
-                                st.write(revised_body)
-                            except Exception as e:
-                                st.error(f"エラーが発生しました: {str(e)}")
-
+修正要望: {revision_request}
+"""
+                                            revised_paragraph = body_generator.revise_body(
+                                                st.session_state.selected_title,
+                                                st.session_state.headlines.current,
+                                                paragraph,
+                                                specific_request
+                                            )
+                                            
+                                            # 修正した段落を元の本文に反映
+                                            paragraphs[i] = revised_paragraph
+                                            complete_revised_body = '\n\n'.join(paragraphs)
+                                            
+                                            # 修正履歴の保存
+                                            st.session_state.generated_body.add_revision(
+                                                f"段落 {i+1}: {revision_request}",
+                                                complete_revised_body
+                                            )
+                                            
+                                            st.success("段落を修正しました！")
+                                            st.experimental_rerun()
+                                        except Exception as e:
+                                            st.error(f"エラーが発生しました: {str(e)}")
+                    
+                    # 本文全体の修正セクション
+                    with st.expander("本文全体の修正", expanded=False):
+                        full_revision_request = st.text_area(
+                            "本文全体の修正要望",
+                            key="full_body_revision",
+                            help="例: 全体的な流れを改善、より説得力のある内容に"
+                        )
+                        
+                        if st.button("本文全体を修正"):
+                            with st.spinner("本文を修正中..."):
+                                try:
+                                    revised_body = body_generator.revise_body(
+                                        st.session_state.selected_title,
+                                        st.session_state.headlines.current,
+                                        st.session_state.generated_body.current,
+                                        full_revision_request
+                                    )
+                                    
+                                    st.session_state.generated_body.add_revision(
+                                        full_revision_request,
+                                        revised_body
+                                    )
+                                    
+                                    st.success("本文を修正しました！")
+                                    st.experimental_rerun()
+                                except Exception as e:
+                                    st.error(f"エラーが発生しました: {str(e)}")
+                    
                     # 修正履歴の表示
-                    with st.expander("修正履歴を表示"):
-                        if st.session_state.body_revisions.revisions:
-                            for i, revision in enumerate(st.session_state.body_revisions.get_all_revisions(), 1):
+                    with st.expander("修正履歴", expanded=False):
+                        if st.session_state.generated_body.revision_history:
+                            for i, revision in enumerate(st.session_state.generated_body.revision_history, 1):
                                 st.write(f"#### 修正 {i}")
-                                st.write(f"**修正要望:** {revision['prompt']}")
+                                st.write(f"**修正要望:** {revision['request']}")
                                 st.write("**修正前:**")
                                 st.write(revision['original'][:200] + "..." if len(revision['original']) > 200 else revision['original'])
                                 st.write("**修正後:**")
