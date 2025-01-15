@@ -782,7 +782,7 @@ def main():
                         )
                     )
             except Exception as e:
-                st.error(f"エラーが発生しました: {str(e)")
+                st.error(f"エラーが発生しました: {str(e)}")
 
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
