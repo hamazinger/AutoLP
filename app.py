@@ -176,6 +176,13 @@ class RefinedTitles(BaseModel):
     main_title: str = Field(description="修正後のメインタイトル")
     sub_title: str = Field(description="修正後のサブタイトル")
 
+    # 非推奨の.dict()メソッドを削除し、.model_dump()を使用
+    def model_dump(self) -> Dict[str, str]:
+        return {
+            "main_title": self.main_title,
+            "sub_title": self.sub_title,
+        }
+
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.client = OpenAI(api_key=api_key)
@@ -301,13 +308,12 @@ class TitleGenerator:
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
 
-        # llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=openai.api_key) # 修正: ChatOpenAI を使用
         llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=self.client.api_key)
-        chain = LLMChain(llm=llm, prompt=prompt_template)
+        chain = prompt_template | llm | parser
 
         try:
-            output = chain.run(main_title=main_title, sub_title=sub_title, prompt=prompt)
-            return parser.parse(output).dict()
+            output = chain.invoke({"main_title": main_title, "sub_title": sub_title, "prompt": prompt})
+            return output
         except Exception as e:
             st.error(f"Langchainによるタイトル修正でエラーが発生しました: {e}")
             return None
@@ -825,7 +831,8 @@ def main():
                                 original_main_title=gen_title.original_main_title,
                                 original_sub_title=gen_title.original_sub_title
                             )
-                            st.experimental_rerun()
+                            # st.experimental_rerun()
+                            st.rerun()  # 新しい書き方
 
         # 手動タイトル評価
         st.subheader("手動タイトル評価")
