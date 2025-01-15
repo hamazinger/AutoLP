@@ -275,7 +275,7 @@ class TitleGenerator:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}\nAIからの応答:\n{result_text}")
             return []
 
-    def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
+        def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
         refine_prompt = f"""
 # 指示
 提示されたメインタイトルとサブタイトルを、以下の要望に従って修正してください。
@@ -311,15 +311,19 @@ class TitleGenerator:
                 temperature=0
             )
             result_text = response.choices[0].message['content'].strip()
+            print(f"APIレスポンス (生): {result_text}")  # ← ログ出力：APIからの生のレスポンスを確認
+
             try:
                 refined_title = json.loads(result_text)
                 return refined_title
-            except json.JSONDecodeError:
-                st.error(f"修正タイトルのJSON解析に失敗しました: {result_text}")
+            except json.JSONDecodeError as e:
+                st.error(f"修正タイトルのJSON解析に失敗しました: ```json\n{result_text}\n```")
+                print(f"JSONデコードエラー詳細: {e}") # ← ログ出力：JSONデコードエラーの詳細を確認
                 return None
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return None
+
 
 class SeminarTitleEvaluator:
     def __init__(self, seminar_data: pd.DataFrame):
