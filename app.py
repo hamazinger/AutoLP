@@ -176,6 +176,11 @@ class RefinedTitles(BaseModel):
     main_title: str = Field(description="修正後のメインタイトル")
     sub_title: str = Field(description="修正後のサブタイトル")
 
+# Pydanticモデルの定義
+class RefinedTitles(BaseModel):
+    main_title: str = Field(description="修正後のメインタイトル")
+    sub_title: str = Field(description="修正後のサブタイトル")
+
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
@@ -296,7 +301,8 @@ class TitleGenerator:
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
 
-        llm = OpenAI(temperature=0, model_name=self.model, openai_api_key=openai.api_key)
+        from langchain_community.llms import OpenAI  # 修正: インポート元を変更
+        llm = OpenAI(temperature=0, model=self.model, openai_api_key=openai.api_key) # 修正: model_name を model に変更
         chain = LLMChain(llm=llm, prompt=prompt_template)
 
         try:
@@ -305,7 +311,7 @@ class TitleGenerator:
         except Exception as e:
             st.error(f"Langchainによるタイトル修正でエラーが発生しました: {e}")
             return None
-
+            
 class SeminarTitleEvaluator:
     def __init__(self, seminar_data: pd.DataFrame):
         self.df = seminar_data
