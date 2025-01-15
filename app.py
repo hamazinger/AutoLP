@@ -16,7 +16,13 @@ from PyPDF2 import PdfReader
 from docx import Document
 from google.cloud import bigquery
 from google.oauth2 import service_account
-import re
+
+# Langchainのインポート
+from langchain.llms import OpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain.output_parsers import PydanticOutputParser
+from pydantic import BaseModel, Field
 
 # Streamlitのページ設定を最初に記述
 st.set_page_config(
@@ -165,6 +171,11 @@ class URLContentExtractor:
     #             error=f"フォールバックも失敗しました: {str(e)} (前エラー: {prev_error})"
     #         )
 
+# Pydanticモデルの定義
+class RefinedTitles(BaseModel):
+    main_title: str = Field(description="修正後のメインタイトル")
+    sub_title: str = Field(description="修正後のサブタイトル")
+
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         openai.api_key = api_key
@@ -273,60 +284,26 @@ class TitleGenerator:
             return titles[:3]
 
         except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}\nAIからの応答:\n{result_text}")
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {e}\nAIからの応答:\n{result_text}")
             return []
 
     def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
-        refine_prompt = f"""
-    # 指示
-    提示されたメインタイトルとサブタイトルを、以下の要望に従って修正してください。
-    
-    # メインタイトル
-    {main_title}
-    
-    # サブタイトル
-    {sub_title}
-    
-    # 要望
-    {prompt}
-    
-    # 制約条件
-    - メインタイトルとサブタイトルに分ける
-    - メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
-    - 感嘆符（！）は使用しない
-    
-    # 出力形式
-    修正後のメインタイトルとサブタイトルを以下のJSON形式で出力してください。
-    {{
-      "main_title": "修正後のメインタイトル",
-      "sub_title": "修正後のサブタイトル"
-    }}
-    """
+        parser = PydanticOutputParser(pydantic_object=RefinedTitles)
+
+        prompt_template = PromptTemplate(
+            template="以下のメインタイトルとサブタイトルを修正してください。\n{format_instructions}\nメインタイトル: {main_title}\nサブタイトル: {sub_title}\n要望: {prompt}",
+            input_variables=["main_title", "sub_title", "prompt"],
+            partial_variables={"format_instructions": parser.get_format_instructions()}
+        )
+
+        llm = OpenAI(temperature=0, model_name=self.model, openai_api_key=openai.api_key)
+        chain = LLMChain(llm=llm, prompt=prompt_template)
+
         try:
-            response = openai.ChatCompletion.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": refine_prompt}
-                ],
-                temperature=0
-            )
-            # result_text = response.choices[0].message['content'].strip()
-            result_text = response.choices[0].message['content']
-            result_text = re.sub(r'^\s+|\s+$', '', result_text) # ← 追加：正規表現でトリム
-            print(f"APIレスポンス (トリム後): {result_text}") # 確認用ログ
-            
-            # print(f"APIレスポンス (生): {result_text}")  # ← ログ出力：APIからの生のレスポンスを確認
-    
-            try:
-                refined_title = json.loads(result_text)
-                return refined_title
-            except json.JSONDecodeError as e:
-                st.error(f"修正タイトルのJSON解析に失敗しました: ```json\n{result_text}\n```")
-                print(f"JSONデコードエラー詳細: {e}") # ← ログ出力：JSONデコードエラーの詳細を確認
-                return None
+            output = chain.run(main_title=main_title, sub_title=sub_title, prompt=prompt)
+            return parser.parse(output).dict()
         except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            st.error(f"Langchainによるタイトル修正でエラーが発生しました: {e}")
             return None
 
 class SeminarTitleEvaluator:
@@ -684,7 +661,7 @@ def main():
                     st.session_state.evaluator = SeminarTitleEvaluator(df)
                     st.success("データを正常に読み込みました！")
                 except Exception as e:
-                    st.error(f"カテゴリデータの処理中にエラーが発生しました: {str(e)}")
+                    st.error(f"カテゴリデータの処理中にエラーが発生しました: {e}")
                     return
             else:
                 st.error("データの読み込みに失敗しました。")
@@ -742,13 +719,12 @@ def main():
             with st.expander("アップロードされたファイルの内容"):
                 st.write(file_content)
         except Exception as e:
-            st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
+            st.error(f"ファイルの読み込みでエラーが発生しました: {e}")
 
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
             "プロンプトテンプレート",
-            value=st.session_state.title_prompt,
-            height=400
+            value=st.session_state.title_prompt,            height=400
         )
 
     if st.button("タイトルを生成", key="generate_titles"):
@@ -790,7 +766,7 @@ def main():
                         )
                     )
             except Exception as e:
-                st.error(f"エラーが発生しました: {str(e)}")
+                st.error(f"エラーが発生しました: {e}")
 
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
@@ -822,7 +798,7 @@ def main():
             with cols[5]:
                 st.write(f"**評価:** {gen_title.evaluation.comment}")
             with cols[6]:
-                修正プロンプト = st.text_area("修正依頼", key=f"refine_prompt_{i}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
+                修正プロンプト = st.text_area("修正依頼", key=f"refine_prompt_{i}", height=50, label_visibility="collapsed", placeholder="例：もっと具体的に")
                 if st.button("修正", key=f"refine_button_{i}"):
                     with st.spinner("タイトル修正中..."):
                         refined_title = title_generator.refine_title(gen_title.main_title, gen_title.sub_title, 修正プロンプト)
@@ -882,7 +858,7 @@ def main():
 
                         display_evaluation_details(full_title, st.session_state.evaluator)
                     except Exception as e:
-                        st.error(f"エラーが発生しました: {str(e)}")
+                        st.error(f"エラーが発生しました: {e}")
 
         # Step 3: 見出し生成
         if st.session_state.generated_titles:
@@ -915,7 +891,7 @@ def main():
                         st.session_state.headlines = headlines
                         st.session_state.manual_headlines = headlines
                     except Exception as e:
-                        st.error(f"エラーが発生しました: {str(e)}")
+                        st.error(f"エラーが発生しました: {e}")
 
             if st.session_state.manual_headlines:
                 st.subheader("生成された見出し（編集可能）")
@@ -961,7 +937,7 @@ def main():
                                 st.session_state.body_prompt
                             )
                         except Exception as e:
-                            st.error(f"エラーが発生しました: {str(e)}")
+                            st.error(f"エラーが発生しました: {e}")
 
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
