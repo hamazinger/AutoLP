@@ -258,6 +258,7 @@ class TitleGenerator:
 {additional_context}
 """ + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
 
+        result_text = None  # result_text を None で初期化
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
@@ -290,8 +291,29 @@ class TitleGenerator:
 
             return titles[:3]
 
-        except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {e}\nAIからの応答:\n{result_text}")
+        # except Exception as e:
+        #     st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {e}\nAIからの応答:\n{result_text}")
+        #     return []
+
+        except openai.OpenAIError as e:  # OpenAI 関連のエラーをキャッチ
+            st.error(f"OpenAI API の呼び出しでエラーが発生しました: {e}")
+            if result_text:
+                st.error(f"AIからの応答:\n{result_text}")
+            return []
+        except json.JSONDecodeError as e:  # JSON デコードエラーをキャッチ
+            st.error(f"JSON のデコードでエラーが発生しました: {e}")
+            if result_text:
+                st.error(f"AIからの応答:\n{result_text}")
+            return []
+        except ValueError as e:  # 値に関するエラーをキャッチ
+            st.error(f"エラーが発生しました: {e}")
+            if result_text:
+                st.error(f"AIからの応答:\n{result_text}")
+            return []
+        except Exception as e:  # その他の予期せぬエラーをキャッチ
+            st.error(f"予期せぬエラーが発生しました: {e}")
+            if result_text:
+                st.error(f"AIからの応答:\n{result_text}")
             return []
 
     def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
