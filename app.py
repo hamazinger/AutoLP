@@ -815,8 +815,13 @@ def main():
                     with st.spinner("タイトル修正中..."):
                         refined_title = title_generator.refine_title(gen_title.main_title, gen_title.sub_title, 修正プロンプト)
                         if refined_title:
-                            refined_main = refined_title.get("main_title", "")
-                            refined_sub = refined_title.get("sub_title", "")
+                            # refined_main = refined_title.get("main_title", "")
+                            # refined_sub = refined_title.get("sub_title", "")
+                            
+                            # 修正後
+                            refined_main = refined_title.main_title
+                            refined_sub = refined_title.sub_title
+
                             full_refined_title = f"{refined_main} - {refined_sub}"
                             analysis = st.session_state.evaluator.evaluate_title(full_refined_title, category)
                             evaluation = TitleEvaluation(
