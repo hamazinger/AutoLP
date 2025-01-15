@@ -654,7 +654,7 @@ def init_session_state():
 
 def main():
     init_session_state()
-    
+
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
@@ -680,16 +680,16 @@ def main():
             else:
                 st.error("データの読み込みに失敗しました。")
                 return
-    
+
     # ジェネレーターの初期化
     model_name = "gpt-4o"
     title_generator = TitleGenerator(api_key, model=model_name)
     headline_generator = HeadlineGenerator(api_key, model=model_name)
     body_generator = BodyGenerator(api_key, model=model_name)
     cache = InMemoryCache()
-    
+
     st.header("Step 1: 基本情報入力")
-    
+
     # 入力フォーム
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
@@ -737,7 +737,7 @@ def main():
                 st.write(file_content)
         except Exception as e:
             st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
-    
+
     # タイトル生成セクション
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
@@ -745,7 +745,7 @@ def main():
             value=st.session_state.title_prompt,
             height=400
         )
-    
+
     if st.button("タイトルを生成", key="generate_titles"):
         context = f"""
 ペインポイント: {pain_points}
@@ -780,11 +780,11 @@ def main():
                     )
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
-    
+
     # タイトル選択・修正セクション
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
-        
+
         st.subheader("生成タイトル")
         for i, gen_title in enumerate(st.session_state.generated_titles):
             cols = st.columns([0.5, 2, 2, 1, 1, 2])
@@ -827,14 +827,14 @@ def main():
                         for t in st.session_state.generated_titles
                     ]
                     revised_titles = title_generator.revise_titles(original_titles, revision_request)
-                    
+
                     # 修正履歴の保存
                     st.session_state.title_revisions.add_revision(
                         str(original_titles),
                         revision_request,
                         str(revised_titles)
                     )
-                    
+
                     # 生成タイトルの更新
                     st.session_state.generated_titles = []
                     for title in revised_titles:
@@ -853,28 +853,28 @@ def main():
                     st.success("タイトルを修正しました！")
                 else:
                     st.error("修正するタイトルがありません。")
-        
+
         # 見出し生成セクション
         if st.session_state.generated_titles:
             st.header("Step 3: 見出し生成")
-            
+
             available_titles = []
             for gen_title in st.session_state.generated_titles:
                 full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
                 available_titles.append(full_title)
-            
+
             st.session_state.selected_title_for_headline = st.selectbox(
                 "見出しを生成するタイトルを選択してください",
                 options=available_titles
             )
-            
+
             with st.expander("見出し生成プロンプトの編集", expanded=False):
                 st.session_state.headline_prompt = st.text_area(
                     "プロンプトテンプレート",
                     value=st.session_state.headline_prompt,
                     height=400
                 )
-            
+
             if st.button("見出しを生成", key="generate_headlines"):
                 with st.spinner("見出しを生成中..."):
                     try:
@@ -886,11 +886,11 @@ def main():
                         st.session_state.manual_headlines = headlines
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
-            
+
             # 見出し修正セクション
             if st.session_state.manual_headlines:
                 st.subheader("生成された見出し（編集可能）")
-                
+
                 background = st.text_area(
                     "背景",
                     value=st.session_state.manual_headlines.background,
@@ -906,20 +906,20 @@ def main():
                     value=st.session_state.manual_headlines.solution,
                     key="edit_solution"
                 )
-                
+
                 st.session_state.manual_headlines = HeadlineSet(
                     background=background,
                     problem=problem,
                     solution=solution
                 )
-                
+
                 # 見出し修正要望
                 headline_revision_request = st.text_area(
                     "見出しの修正要望を入力してください",
                     key="headline_revision_request",
                     help="例: 背景をより具体的に、課題をより明確に"
                 )
-                
+
                 if st.button("見出しを修正", key="revise_headlines"):
                     with st.spinner("見出しを修正中..."):
                         try:
@@ -927,29 +927,29 @@ def main():
                                 st.session_state.manual_headlines,
                                 headline_revision_request
                             )
-                            
+
                             # 修正履歴の保存
                             st.session_state.headline_revisions.add_revision(
                                 str(st.session_state.manual_headlines),
                                 headline_revision_request,
                                 str(revised_headlines)
                             )
-                            
+
                             st.session_state.manual_headlines = revised_headlines
                             st.success("見出しを修正しました！")
                         except Exception as e:
                             st.error(f"エラーが発生しました: {str(e)}")
-                
+
                 # 本文生成セクション
                 st.header("Step 4: 本文生成")
-                
+
                 with st.expander("本文生成プロンプトの編集", expanded=False):
                     st.session_state.body_prompt = st.text_area(
                         "本文生成プロンプトテンプレート",
                         value=st.session_state.body_prompt,
                         height=400
                     )
-                
+
                 if st.button("本文を生成", key="generate_body"):
                     with st.spinner("本文を生成中..."):
                         try:
@@ -960,12 +960,12 @@ def main():
                             )
                         except Exception as e:
                             st.error(f"エラーが発生しました: {str(e)}")
-                
+
                 # 本文表示・修正セクション
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
                     st.write(st.session_state.generated_body)
-                    
+
                     # 本文修正要望
                     body_revision_request = st.text_area(
                         "本文の修正要望を入力してください",
@@ -973,7 +973,7 @@ def main():
                         help="例: もう少し具体的な事例を入れて、ベネフィットをより明確に"
                     )
 
-                if st.button("本文を修正", key="revise_body"):
+                    if st.button("本文を修正", key="revise_body"):
                         with st.spinner("本文を修正中..."):
                             try:
                                 revised_body = body_generator.revise_body(
@@ -982,23 +982,23 @@ def main():
                                     st.session_state.generated_body,
                                     body_revision_request
                                 )
-                                
+
                                 # 修正履歴の保存
                                 st.session_state.body_revisions.add_revision(
                                     st.session_state.generated_body,
                                     body_revision_request,
                                     revised_body
                                 )
-                                
+
                                 st.session_state.generated_body = revised_body
                                 st.success("本文を修正しました！")
-                                
+
                                 # 修正後の本文を表示
                                 st.subheader("修正後の本文")
                                 st.write(revised_body)
                             except Exception as e:
                                 st.error(f"エラーが発生しました: {str(e)}")
-                    
+
                     # 修正履歴の表示
                     with st.expander("修正履歴を表示"):
                         if st.session_state.body_revisions.revisions:
