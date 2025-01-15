@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional
 from datetime import datetime
 import json
-import openai
 import requests
 from bs4 import BeautifulSoup
 from trafilatura import fetch_url, extract
@@ -16,15 +15,14 @@ from PyPDF2 import PdfReader
 from docx import Document
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from openai import OpenAI
 
 # Langchainのインポート
-from langchain.llms import OpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
-from langchain_community.llms import OpenAI # 念のため、従来のOpenAIもインポートしておく
 
 # Streamlitのページ設定を最初に記述
 st.set_page_config(
@@ -178,14 +176,9 @@ class RefinedTitles(BaseModel):
     main_title: str = Field(description="修正後のメインタイトル")
     sub_title: str = Field(description="修正後のサブタイトル")
 
-# Pydanticモデルの定義
-class RefinedTitles(BaseModel):
-    main_title: str = Field(description="修正後のメインタイトル")
-    sub_title: str = Field(description="修正後のサブタイトル")
-
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
-        openai.api_key = api_key
+        self.client = OpenAI(api_key=api_key)
         self.model = model
         self.url_extractor = URLContentExtractor()
         self.user_editable_prompt = """
@@ -261,7 +254,8 @@ class TitleGenerator:
         result_text = None  # result_text を None で初期化
 
         try:
-            response = openai.ChatCompletion.create(
+            # 新しい書き方で API を呼び出す
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
@@ -270,7 +264,7 @@ class TitleGenerator:
                 temperature=0
             )
 
-            result_text = response.choices[0].message['content'].strip()
+            result_text = response.choices[0].message.content.strip()
 
             try:
                 result = json.loads(result_text)
@@ -292,23 +286,8 @@ class TitleGenerator:
 
             return titles[:3]
 
-        except openai.OpenAIError as e:  # OpenAI 関連のエラーをキャッチ
-            st.error(f"OpenAI API の呼び出しでエラーが発生しました: {e}")
-            if result_text:
-                st.error(f"AIからの応答:\n{result_text}")
-            return []
-        except json.JSONDecodeError as e:  # JSON デコードエラーをキャッチ
-            st.error(f"JSON のデコードでエラーが発生しました: {e}")
-            if result_text:
-                st.error(f"AIからの応答:\n{result_text}")
-            return []
-        except ValueError as e:  # 値に関するエラーをキャッチ
+        except Exception as e:  # すべての例外をキャッチ
             st.error(f"エラーが発生しました: {e}")
-            if result_text:
-                st.error(f"AIからの応答:\n{result_text}")
-            return []
-        except Exception as e:  # その他の予期せぬエラーをキャッチ
-            st.error(f"予期せぬエラーが発生しました: {e}")
             if result_text:
                 st.error(f"AIからの応答:\n{result_text}")
             return []
@@ -331,7 +310,7 @@ class TitleGenerator:
         except Exception as e:
             st.error(f"Langchainによるタイトル修正でエラーが発生しました: {e}")
             return None
-            
+
 class SeminarTitleEvaluator:
     def __init__(self, seminar_data: pd.DataFrame):
         self.df = seminar_data
@@ -464,7 +443,7 @@ class SeminarTitleEvaluator:
 
 class HeadlineGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
-        openai.api_key = api_key
+        self.client = OpenAI(api_key=api_key)
         self.model = model
         self.fixed_prompt_part = """
 「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。 」
@@ -488,7 +467,7 @@ class HeadlineGenerator:
         prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
 
         try:
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
@@ -497,7 +476,7 @@ class HeadlineGenerator:
                 temperature=0
             )
 
-            result_text = response.choices[0].message['content'].strip()
+            result_text = response.choices[0].message.content.strip()
 
             try:
                 result = json.loads(result_text)
@@ -516,7 +495,7 @@ class HeadlineGenerator:
 
 class BodyGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
-        openai.api_key = api_key
+        self.client = OpenAI(api_key=api_key)
         self.model = model
         self.fixed_prompt_part = """
 以下のセミナータイトルと見出しに基づいて、本文を生成してください：
@@ -549,7 +528,7 @@ class BodyGenerator:
         ) + (prompt_template or self.user_editable_prompt)
 
         try:
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
@@ -558,7 +537,7 @@ class BodyGenerator:
                 temperature=0
             )
 
-            return response.choices[0].message['content'].strip()
+            return response.choices[0].message.content.strip()
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return ""
