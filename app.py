@@ -23,6 +23,8 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+from langchain_community.llms import OpenAI # 念のため、従来のOpenAIもインポートしておく
 
 # Streamlitのページ設定を最初に記述
 st.set_page_config(
@@ -301,8 +303,7 @@ class TitleGenerator:
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
 
-        from langchain_community.llms import OpenAI  # 修正: インポート元を変更
-        llm = OpenAI(temperature=0, model=self.model, openai_api_key=openai.api_key) # 修正: model_name を model に変更
+        llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=openai.api_key) # 修正: ChatOpenAI を使用
         chain = LLMChain(llm=llm, prompt=prompt_template)
 
         try:
