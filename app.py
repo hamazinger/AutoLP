@@ -17,7 +17,7 @@ from docx import Document
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-# Streamlitのページ設定を最初に記述
+# Streamlitのページ設定
 st.set_page_config(
     page_title="セミナータイトルジェネレーター",
     layout="wide"
@@ -51,13 +51,13 @@ class TitleAnalysis:
     title_length: int
     category_score: float
     reasoning: Dict[str, str]
-    evaluation_comment: str  # 追加：評価コメント
+    evaluation_comment: str
 
 @dataclass
 class TitleEvaluation:
     speed: float
     grade: str
-    comment: str  # 追加：評価コメント
+    comment: str
     timestamp: str = datetime.now().isoformat()
 
 @dataclass
@@ -86,6 +86,25 @@ class HeadlineSet:
             problem=data.get("problem", ""),
             solution=data.get("solution", "")
         )
+
+# 修正履歴を管理するクラスを追加
+class RevisionHistory:
+    def __init__(self):
+        self.revisions = []
+    
+    def add_revision(self, original_content: str, revision_prompt: str, revised_content: str):
+        self.revisions.append({
+            "original": original_content,
+            "prompt": revision_prompt,
+            "revised": revised_content,
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    def get_latest_revision(self):
+        return self.revisions[-1] if self.revisions else None
+    
+    def get_all_revisions(self):
+        return self.revisions
 
 class URLContentExtractor:
     def __init__(self):
@@ -130,37 +149,6 @@ class URLContentExtractor:
                 main_content="",
                 error=f"エラーが発生しました: {str(e)}"
             )
-        # except Exception as e:
-        #     return self.extract_with_fallback(url, str(e))
-
-    # def extract_with_fallback(self, url: str, prev_error: str) -> WebContent:
-    #     try:
-    #         # フォールバック処理: requestsで直接HTML取得
-    #         response = requests.get(url, headers=self.headers, timeout=10)
-    #         response.raise_for_status()
-
-    #         # 自動エンコード判定
-    #         response.encoding = response.apparent_encoding
-
-    #         soup = BeautifulSoup(response.text, 'html.parser')
-    #         title = soup.title.string if soup.title else ""
-    #         meta_desc = soup.find('meta', {'name': 'description'})
-    #         description = meta_desc['content'] if meta_desc else ""
-    #         body_content = '\n'.join([p.get_text() for p in soup.find_all('p')])
-
-    #         return WebContent(
-    #             title=title,
-    #             description=description,
-    #             main_content=body_content
-    #         )
-    #     except Exception as e:
-    #         # フォールバックも失敗
-    #         return WebContent(
-    #             title="",
-    #             description="",
-    #             main_content="",
-    #             error=f"フォールバックも失敗しました: {str(e)} (前エラー: {prev_error})"
-    #         )
 
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
@@ -177,20 +165,16 @@ class TitleGenerator:
 - メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
 - 感嘆符（！）は使用しない
 - 参加したら何がわかるのかが明確である
+"""
+        self.revision_prompt_template = """
+前回生成したタイトルに対して、以下の修正要望が来ています：
+{revision_request}
 
-# Steps
+前回生成したタイトル：
+メインタイトル：{main_title}
+サブタイトル：{sub_title}
 
-1. 入力情報から製品の特徴とペインポイントを理解する
-2. ペインポイントに基づき、メインタイトルで問題点や課題、悩み、不安を投げかける
-3. 製品の特徴に基づき、サブタイトルでメインタイトルで表現したインサイトを解決する手段や手法、アプローチ、その先に得られるベネフィットを表現する
-4. メインタイトルとサブタイトルをそれぞれ40文字以内で簡潔に表現する
-5. メインタイトルとサブタイトルを組み合わせ、参加したら何がわかるのかが明確なタイトルを生成する
-6. 感嘆符（！）が使用されていないことを確認する
-
-# Examples
-
-- **Main Title**: 人材不足でも、社内ネットワークを安定稼働し続けるにはどうすればよいのか？
-- **Subtitle**: 〜ネットワーク障害解決を迅速化するマップ機能の活用法を解説〜
+この修正要望を踏まえて、タイトルを改善してください。なお、先ほどの制約条件は依然として有効です。
 """
         self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
@@ -213,6 +197,15 @@ class TitleGenerator:
 """
 
     def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
+        additional_context = self._prepare_additional_context(product_url, file_content)
+        prompt = self._build_prompt(context, additional_context, prompt_template)
+        return self._execute_generation(prompt)
+
+    def revise_titles(self, original_titles: List[Dict[str, str]], revision_request: str) -> List[Dict[str, str]]:
+        revision_prompt = self._build_revision_prompt(original_titles[0], revision_request)
+        return self._execute_generation(revision_prompt)
+
+    def _prepare_additional_context(self, product_url: str = None, file_content: str = None) -> str:
         additional_context = ""
         if product_url:
             content = self.url_extractor.extract_with_trafilatura(product_url)
@@ -222,21 +215,28 @@ class TitleGenerator:
 製品説明: {content.description}
 製品詳細: {content.main_content[:1000]}
 """
-            else:
-                st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
-        
         if file_content:
             additional_context += f"""
 アップロードされたファイルの内容:
 {file_content}
 """
-        
-        prompt = f"""
+        return additional_context
+
+    def _build_prompt(self, context: str, additional_context: str, prompt_template: str = None) -> str:
+        return f"""
 # 入力情報
 {context}
 {additional_context}
 """ + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
-        
+
+    def _build_revision_prompt(self, original_title: Dict[str, str], revision_request: str) -> str:
+        return self.revision_prompt_template.format(
+            revision_request=revision_request,
+            main_title=original_title["main_title"],
+            sub_title=original_title["sub_title"]
+        ) + self.fixed_output_instructions
+
+    def _execute_generation(self, prompt: str) -> List[Dict[str, str]]:
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
@@ -270,8 +270,165 @@ class TitleGenerator:
             return titles[:3]
                 
         except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}\nAIからの応答:\n{result_text}")
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return []
+
+class HeadlineGenerator:
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
+        openai.api_key = api_key
+        self.model = model
+        self.fixed_prompt_part = """
+「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。」
+"""
+        self.user_editable_prompt = """
+見出し1：このセミナーを開催する、社会や企業の背景
+見出し2：このセミナーで訴求したい、課題、問題、悩み、不安
+見出し3：上記課題の解決の方向性
+"""
+        self.revision_prompt_template = """
+前回生成した見出しに対して、以下の修正要望が来ています：
+{revision_request}
+
+前回生成した見出し：
+背景：{background}
+課題：{problem}
+解決策：{solution}
+
+この修正要望を踏まえて、見出しを改善してください。
+"""
+        self.fixed_output_instructions = """
+以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
+{
+    "background": "背景の見出し",
+    "problem": "課題の見出し",
+    "solution": "解決策の見出し"
+}
+"""
+
+    def generate_headlines(self, title: str, prompt_template: str = None) -> HeadlineSet:
+        """タイトルに基づいて見出しを生成"""
+        prompt = self._build_prompt(title, prompt_template)
+        return self._execute_generation(prompt)
+
+    def revise_headlines(self, original_headlines: HeadlineSet, revision_request: str) -> HeadlineSet:
+        """修正要望に基づいて見出しを修正"""
+        revision_prompt = self._build_revision_prompt(original_headlines, revision_request)
+        return self._execute_generation(revision_prompt)
+
+    def _build_prompt(self, title: str, prompt_template: str = None) -> str:
+        return self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
+
+    def _build_revision_prompt(self, headlines: HeadlineSet, revision_request: str) -> str:
+        return self.revision_prompt_template.format(
+            revision_request=revision_request,
+            background=headlines.background,
+            problem=headlines.problem,
+            solution=headlines.solution
+        ) + self.fixed_output_instructions
+
+    def _execute_generation(self, prompt: str) -> HeadlineSet:
+        try:
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0
+            )
+            
+            result_text = response.choices[0].message['content'].strip()
+            
+            try:
+                result = json.loads(result_text)
+            except json.JSONDecodeError:
+                start_index = result_text.find('{')
+                end_index = result_text.rfind('}') + 1
+                if start_index != -1 and end_index > start_index:
+                    json_text = result_text[start_index:end_index]
+                    result = json.loads(json_text)
+            
+            return HeadlineSet.from_dict(result)
+            
+        except Exception as e:
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            return HeadlineSet("", "", "")
+
+class BodyGenerator:
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
+        openai.api_key = api_key
+        self.model = model
+        self.fixed_prompt_part = """
+以下のセミナータイトルと見出しに基づいて、本文を生成してください：
+- 各見出しは本文中に明示してください。明確に見出しであることがわかるマークダウンの書式（見出しレベル4）を用いてください。
+
+タイトル：「{title}」
+{background}
+{problem}」
+{solution}
+"""
+        self.user_editable_prompt = """
+以下の制約条件と入力情報を踏まえて本文を生成してください。
+
+# 制約条件
+- 各見出しセクションは最低300文字以上とし、3文以内でまとめてください（句読点で区切られた3文以内）。
+- 全文で1000文字以内に収めてください。
+- 本文中では箇条書きを使用しないでください。
+- 3つの見出しを通して、一連のストーリーとして流れを持たせてください。
+- セミナー内容の紹介および参加を促す表現は、3つ目の見出しのセクションでのみ行ってください。
+- 重要なキーワードは本文中に必ず含めてください。
+- あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
+"""
+        self.revision_prompt_template = """
+前回生成した本文に対して、以下の修正要望が来ています：
+{revision_request}
+
+前回生成した本文：
+{previous_body}
+
+この修正要望を踏まえて、本文を改善してください。なお、先ほどの制約条件は依然として有効です。
+"""
+
+    def generate_body(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
+        """タイトルと見出しに基づいて本文を生成"""
+        prompt = self._build_prompt(title, headlines, prompt_template)
+        return self._execute_generation(prompt)
+
+    def revise_body(self, title: str, headlines: HeadlineSet, previous_body: str, revision_request: str) -> str:
+        """修正要望に基づいて本文を修正"""
+        revision_prompt = self._build_revision_prompt(title, headlines, previous_body, revision_request)
+        return self._execute_generation(revision_prompt)
+
+    def _build_prompt(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
+        return self.fixed_prompt_part.format(
+            title=title,
+            background=headlines.background,
+            problem=headlines.problem,
+            solution=headlines.solution
+        ) + (prompt_template or self.user_editable_prompt)
+
+    def _build_revision_prompt(self, title: str, headlines: HeadlineSet, previous_body: str, revision_request: str) -> str:
+        context = self._build_prompt(title, headlines, None)
+        return context + self.revision_prompt_template.format(
+            revision_request=revision_request,
+            previous_body=previous_body
+        )
+
+    def _execute_generation(self, prompt: str) -> str:
+        try:
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0
+            )
+            
+            return response.choices[0].message['content'].strip()
+        except Exception as e:
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            return ""
 
 class SeminarTitleEvaluator:
     def __init__(self, seminar_data: pd.DataFrame):
@@ -306,10 +463,8 @@ class SeminarTitleEvaluator:
         return list(word_counts[word_counts >= 2].index)
 
     def _generate_evaluation_comment(self, analysis_data: dict) -> str:
-        """評価コメントを生成する新しいメソッド"""
         comments = []
         
-        # スコアに基づくコメント
         if analysis_data["predicted_speed"] >= 2.5:
             comments.append("高い集客が期待できます")
         elif analysis_data["predicted_speed"] >= 1.8:
@@ -317,17 +472,14 @@ class SeminarTitleEvaluator:
         else:
             comments.append("改善の余地があります")
         
-        # キーワードに基づくコメント
         if analysis_data["attractive_words"]:
             comments.append("効果的なキーワードが含まれています")
         else:
             comments.append("効果的なキーワードの追加を検討してください")
         
-        # 長さに基づくコメント
         if analysis_data["title_length"] > 40:
             comments.append("タイトルを短くすることを推奨します")
         
-        # 問題提起の有無
         if not analysis_data["has_specific_problem"]:
             comments.append("具体的な課題や問題提起の追加を検討してください")
         
@@ -403,107 +555,6 @@ class SeminarTitleEvaluator:
             
         return base_score
 
-class HeadlineGenerator:
-    def __init__(self, api_key: str, model: str = "gpt-4o"):
-        openai.api_key = api_key
-        self.model = model
-        self.fixed_prompt_part = """
-「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。 」
-"""
-        self.user_editable_prompt = """
-見出し1：このセミナーを開催する、社会や企業の背景
-見出し2：このセミナーで訴求したい、課題、問題、悩み、不安
-見出し3：上記課題の解決の方向性
-"""
-        self.fixed_output_instructions = """
-以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
-{
-    "background": "背景の見出し",
-    "problem": "課題の見出し",
-    "solution": "解決策の見出し"
-}
-"""
-
-    def generate_headlines(self, title: str, prompt_template: str = None) -> HeadlineSet:
-        """タイトルに基づいて見出しを生成"""
-        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
-        
-        try:
-            response = openai.ChatCompletion.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0
-            )
-            
-            result_text = response.choices[0].message['content'].strip()
-            
-            try:
-                result = json.loads(result_text)
-            except json.JSONDecodeError:
-                start_index = result_text.find('{')
-                end_index = result_text.rfind('}') + 1
-                if start_index != -1 and end_index > start_index:
-                    json_text = result_text[start_index:end_index]
-                    result = json.loads(json_text)
-            
-            return HeadlineSet.from_dict(result)
-            
-        except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
-            return HeadlineSet("", "", "")
-
-class BodyGenerator:
-    def __init__(self, api_key: str, model: str = "gpt-4o"):
-        openai.api_key = api_key
-        self.model = model
-        self.fixed_prompt_part = """
-以下のセミナータイトルと見出しに基づいて、本文を生成してください：
-- 各見出しは本文中に明示してください。明確に見出しであることがわかるマークダウンの書式（見出しレベル4）を用いてください。
-
-タイトル：「{title}」
-{background}
-{problem}」
-{solution}
-"""
-        self.user_editable_prompt = """
-以下の制約条件と入力情報を踏まえて本文を生成してください。
-
-# 制約条件
-- 各見出しセクションは最低300文字以上とし、3文以内でまとめてください（句読点で区切られた3文以内）。
-- 全文で1000文字以内に収めてください。
-- 本文中では箇条書きを使用しないでください。
-- 3つの見出しを通して、一連のストーリーとして流れを持たせてください。
-- セミナー内容の紹介および参加を促す表現は、3つ目の見出しのセクションでのみ行ってください。
-- 重要なキーワードは本文中に必ず含めてください。
-- あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
-"""
-
-    def generate_body(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
-        prompt = self.fixed_prompt_part.format(
-            title=title,
-            background=headlines.background,
-            problem=headlines.problem,
-            solution=headlines.solution
-        ) + (prompt_template or self.user_editable_prompt)
-        
-        try:
-            response = openai.ChatCompletion.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0
-            )
-            
-            return response.choices[0].message['content'].strip()
-        except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
-            return ""
-
 class InMemoryCache:
     def __init__(self):
         if 'title_cache' not in st.session_state:
@@ -575,36 +626,31 @@ def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
         st.markdown(f'<p>{highlighted_title}</p>', unsafe_allow_html=True)
 
 def init_session_state():
-    if 'generated_titles' not in st.session_state:
-        st.session_state.generated_titles = []
-    if 'selected_title' not in st.session_state:
-        st.session_state.selected_title = None
-    if 'selected_title_for_headline' not in st.session_state:
-        st.session_state.selected_title_for_headline = None
-    if 'selected_category' not in st.session_state:
-        st.session_state.selected_category = None
-    if 'headlines' not in st.session_state:
-        st.session_state.headlines = None
-    if 'title_cache' not in st.session_state:
-        st.session_state.title_cache = {}
-    if 'seminar_data' not in st.session_state:
-        st.session_state.seminar_data = None
-    if 'evaluator' not in st.session_state:
-        st.session_state.evaluator = None
-    if 'available_categories' not in st.session_state:
-        st.session_state.available_categories = []
-    if 'extracted_content' not in st.session_state:
-        st.session_state.extracted_content = {}
-    if 'title_prompt' not in st.session_state:
-        st.session_state.title_prompt = TitleGenerator("dummy_key").user_editable_prompt
-    if 'headline_prompt' not in st.session_state:
-        st.session_state.headline_prompt = HeadlineGenerator("dummy_key").user_editable_prompt
-    if 'body_prompt' not in st.session_state:
-        st.session_state.body_prompt = BodyGenerator("dummy_key").user_editable_prompt
-    if 'generated_body' not in st.session_state:
-        st.session_state.generated_body = None
-    if 'manual_headlines' not in st.session_state:
-        st.session_state.manual_headlines = None
+    """セッション状態の初期化"""
+    initial_states = {
+        'generated_titles': [],
+        'selected_title': None,
+        'selected_title_for_headline': None,
+        'selected_category': None,
+        'headlines': None,
+        'title_cache': {},
+        'seminar_data': None,
+        'evaluator': None,
+        'available_categories': [],
+        'extracted_content': {},
+        'title_prompt': TitleGenerator("dummy_key").user_editable_prompt,
+        'headline_prompt': HeadlineGenerator("dummy_key").user_editable_prompt,
+        'body_prompt': BodyGenerator("dummy_key").user_editable_prompt,
+        'generated_body': None,
+        'manual_headlines': None,
+        'title_revisions': RevisionHistory(),
+        'headline_revisions': RevisionHistory(),
+        'body_revisions': RevisionHistory(),
+    }
+    
+    for key, initial_value in initial_states.items():
+        if key not in st.session_state:
+            st.session_state[key] = initial_value
 
 def main():
     init_session_state()
@@ -614,9 +660,10 @@ def main():
     except KeyError:
         st.error("OpenAI APIキーが設定されていません")
         return
-    
+
     st.title("セミナータイトルジェネレーター")
-    
+
+    # データ読み込み
     if st.session_state.seminar_data is None:
         with st.spinner("セミナーデータを読み込んでいます..."):
             df = load_seminar_data()
@@ -634,6 +681,7 @@ def main():
                 st.error("データの読み込みに失敗しました。")
                 return
     
+    # ジェネレーターの初期化
     model_name = "gpt-4o"
     title_generator = TitleGenerator(api_key, model=model_name)
     headline_generator = HeadlineGenerator(api_key, model=model_name)
@@ -642,6 +690,7 @@ def main():
     
     st.header("Step 1: 基本情報入力")
     
+    # 入力フォーム
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         product_url = st.text_input("製品URL")
@@ -666,6 +715,7 @@ def main():
         )
         st.session_state.selected_category = category
 
+    # ファイルアップロード
     uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
     file_content = ""
     if uploaded_file is not None:
@@ -688,6 +738,7 @@ def main():
         except Exception as e:
             st.error(f"ファイルの読み込みでエラーが発生しました: {str(e)}")
     
+    # タイトル生成セクション
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
             "プロンプトテンプレート",
@@ -730,12 +781,13 @@ def main():
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
     
+    # タイトル選択・修正セクション
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
         
         st.subheader("生成タイトル")
         for i, gen_title in enumerate(st.session_state.generated_titles):
-            cols = st.columns([0.5, 2, 2, 1, 1, 2])  # 評価コメント用にカラムを追加
+            cols = st.columns([0.5, 2, 2, 1, 1, 2])
             with cols[0]:
                 if st.radio(
                     "選択",
@@ -759,41 +811,50 @@ def main():
                 )
             with cols[5]:
                 st.write(f"**評価:** {gen_title.evaluation.comment}")
-        
-        # 手動タイトル評価
-        st.subheader("手動タイトル評価")
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            manual_main_title = st.text_input("メインタイトル", key="manual_main_title")
-            manual_sub_title = st.text_input("サブタイトル", key="manual_sub_title")
-        with col2:
-            if st.button("評価する", key="evaluate_manual") and manual_main_title:
-                with st.spinner("評価中..."):
-                    try:
-                        full_title = f"{manual_main_title} - {manual_sub_title}"
-                        cached_eval = cache.get_evaluation(full_title)
-                        if cached_eval:
-                            evaluation = cached_eval
-                        else:
-                            analysis = st.session_state.evaluator.evaluate_title(
-                                full_title, 
-                                st.session_state.selected_category
-                            )
-                            evaluation = TitleEvaluation(
-                                speed=analysis.predicted_speed,
-                                grade=analysis.grade,
-                                comment=analysis.evaluation_comment
-                            )
-                            cache.set_evaluation(full_title, evaluation)
-                        st.session_state.generated_titles.append(
-                            GeneratedTitle(main_title=manual_main_title, sub_title=manual_sub_title, evaluation=evaluation)
+
+        # タイトル修正セクション
+        st.subheader("タイトル修正")
+        revision_request = st.text_area(
+            "タイトルの修正要望を入力してください",
+            key="title_revision_request",
+            help="例: もっと具体的な課題を入れて、解決策をより明確に"
+        )
+        if st.button("タイトルを修正", key="revise_titles"):
+            with st.spinner("タイトルを修正中..."):
+                if st.session_state.generated_titles:
+                    original_titles = [
+                        {"main_title": t.main_title, "sub_title": t.sub_title}
+                        for t in st.session_state.generated_titles
+                    ]
+                    revised_titles = title_generator.revise_titles(original_titles, revision_request)
+                    
+                    # 修正履歴の保存
+                    st.session_state.title_revisions.add_revision(
+                        str(original_titles),
+                        revision_request,
+                        str(revised_titles)
+                    )
+                    
+                    # 生成タイトルの更新
+                    st.session_state.generated_titles = []
+                    for title in revised_titles:
+                        main_title = title.get("main_title", "")
+                        sub_title = title.get("sub_title", "")
+                        full_title = f"{main_title} - {sub_title}"
+                        analysis = st.session_state.evaluator.evaluate_title(full_title, category)
+                        evaluation = TitleEvaluation(
+                            speed=analysis.predicted_speed,
+                            grade=analysis.grade,
+                            comment=analysis.evaluation_comment
                         )
-                        
-                        display_evaluation_details(full_title, st.session_state.evaluator)
-                    except Exception as e:
-                        st.error(f"エラーが発生しました: {str(e)}")
+                        st.session_state.generated_titles.append(
+                            GeneratedTitle(main_title=main_title, sub_title=sub_title, evaluation=evaluation)
+                        )
+                    st.success("タイトルを修正しました！")
+                else:
+                    st.error("修正するタイトルがありません。")
         
-        # Step 3: 見出し生成
+        # 見出し生成セクション
         if st.session_state.generated_titles:
             st.header("Step 3: 見出し生成")
             
@@ -826,6 +887,7 @@ def main():
                     except Exception as e:
                         st.error(f"エラーが発生しました: {str(e)}")
             
+            # 見出し修正セクション
             if st.session_state.manual_headlines:
                 st.subheader("生成された見出し（編集可能）")
                 
@@ -851,7 +913,34 @@ def main():
                     solution=solution
                 )
                 
-                # Step 4: 本文生成
+                # 見出し修正要望
+                headline_revision_request = st.text_area(
+                    "見出しの修正要望を入力してください",
+                    key="headline_revision_request",
+                    help="例: 背景をより具体的に、課題をより明確に"
+                )
+                
+                if st.button("見出しを修正", key="revise_headlines"):
+                    with st.spinner("見出しを修正中..."):
+                        try:
+                            revised_headlines = headline_generator.revise_headlines(
+                                st.session_state.manual_headlines,
+                                headline_revision_request
+                            )
+                            
+                            # 修正履歴の保存
+                            st.session_state.headline_revisions.add_revision(
+                                str(st.session_state.manual_headlines),
+                                headline_revision_request,
+                                str(revised_headlines)
+                            )
+                            
+                            st.session_state.manual_headlines = revised_headlines
+                            st.success("見出しを修正しました！")
+                        except Exception as e:
+                            st.error(f"エラーが発生しました: {str(e)}")
+                
+                # 本文生成セクション
                 st.header("Step 4: 本文生成")
                 
                 with st.expander("本文生成プロンプトの編集", expanded=False):
@@ -872,9 +961,57 @@ def main():
                         except Exception as e:
                             st.error(f"エラーが発生しました: {str(e)}")
                 
+                # 本文表示・修正セクション
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
                     st.write(st.session_state.generated_body)
+                    
+                    # 本文修正要望
+                    body_revision_request = st.text_area(
+                        "本文の修正要望を入力してください",
+                        key="body_revision_request",
+                        help="例: もう少し具体的な事例を入れて、ベネフィットをより明確に"
+                    )
+
+                if st.button("本文を修正", key="revise_body"):
+                        with st.spinner("本文を修正中..."):
+                            try:
+                                revised_body = body_generator.revise_body(
+                                    st.session_state.selected_title_for_headline,
+                                    st.session_state.manual_headlines,
+                                    st.session_state.generated_body,
+                                    body_revision_request
+                                )
+                                
+                                # 修正履歴の保存
+                                st.session_state.body_revisions.add_revision(
+                                    st.session_state.generated_body,
+                                    body_revision_request,
+                                    revised_body
+                                )
+                                
+                                st.session_state.generated_body = revised_body
+                                st.success("本文を修正しました！")
+                                
+                                # 修正後の本文を表示
+                                st.subheader("修正後の本文")
+                                st.write(revised_body)
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {str(e)}")
+                    
+                    # 修正履歴の表示
+                    with st.expander("修正履歴を表示"):
+                        if st.session_state.body_revisions.revisions:
+                            for i, revision in enumerate(st.session_state.body_revisions.get_all_revisions(), 1):
+                                st.write(f"#### 修正 {i}")
+                                st.write(f"**修正要望:** {revision['prompt']}")
+                                st.write("**修正前:**")
+                                st.write(revision['original'][:200] + "..." if len(revision['original']) > 200 else revision['original'])
+                                st.write("**修正後:**")
+                                st.write(revision['revised'][:200] + "..." if len(revision['revised']) > 200 else revision['revised'])
+                                st.write("---")
+                        else:
+                            st.info("まだ修正履歴はありません。")
 
 if __name__ == "__main__":
     main()
