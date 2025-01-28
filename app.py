@@ -30,7 +30,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Right sidebar developer profile link and footer hide CSS
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -94,3 +93,57 @@ class HeadlineSet:
             problem=data.get("problem", ""),
             solution=data.get("solution", "")
         )
+
+class URLContentExtractor:
+    def __init__(self):
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0'
+        }
+
+    def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
+        try:
+            downloaded = fetch_url(url)
+            if downloaded is None:
+                return WebContent(
+                    title="",
+                    description="",
+                    main_content="",
+                    error="URLからのコンテンツ取得に失敗しました"
+                )
+
+            content = extract(downloaded, include_comments=False, include_tables=False)
+            if content is None:
+                return WebContent(
+                    title="",
+                    description="",
+                    main_content="",
+                    error="コンテンツの抽出に失敗しました"
+                )
+
+            soup = BeautifulSoup(downloaded, 'html.parser')
+            title = soup.title.string if soup.title else ""
+            meta_desc = soup.find('meta', {'name': 'description'})
+            description = meta_desc['content'] if meta_desc else ""
+
+            return WebContent(
+                title=title,
+                description=description,
+                main_content=content
+            )
+        except Exception as e:
+            return WebContent(
+                title="",
+                description="",
+                main_content="",
+                error=f"エラーが発生しました: {str(e)}"
+            )
+
+class RefinedTitles(BaseModel):
+    main_title: str = Field(description="修正後のメインタイトル")
+    sub_title: str = Field(description="修正後のサブタイトル")
+
+    def model_dump(self) -> Dict[str, str]:
+        return {
+            "main_title": self.main_title,
+            "sub_title": self.sub_title,
+        }
