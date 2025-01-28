@@ -1,11 +1,11 @@
-streamlit>=1.24.0  # この行を更新
-langchain>=0.1.7   # この行を更新
+streamlit>=1.24.0
+langchain>=0.1.7
 langchain-community>=0.3.14
 langchain-openai>=0.3.0
 google-cloud-bigquery>=3.11.0
 pandas-gbq>=0.19.2
 db-dtypes>=1.1.1
-openai>=1.6.1      # この行を更新
+openai>=1.6.1
 pandas>=2.0.0
 numpy>=1.24.0
 beautifulsoup4==4.12.2
@@ -13,4 +13,5 @@ trafilatura>=1.5.0
 PyPDF2>=3.0.0
 python-docx>=0.8.11
 requests>=2.28.0
-pydantic>=2.6.3   # この行を更新
+pydantic>=2.6.3
+python-dotenv>=1.0.0
