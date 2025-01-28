@@ -26,7 +26,7 @@ from langchain_openai import ChatOpenAI
 
 # Streamlitのページ設定を最初に記述
 st.set_page_config(
-    page_title="セミナータイトルジェネレーター",
+    page_title="セミナタイトルジェネレーター",
     layout="wide"
 )
 
