@@ -198,14 +198,18 @@ class TitleGenerator:
 - メインタイトル、サブタイトルは、それぞれ40文字以内で簡潔にする
 - 感嘆符（！）は使用しない
 - 参加したら何がわかるのかが明確である
+- **ターゲット像を意識する**
+
+# ターゲット像
+{target}
 
 # Steps
 
-1. 入力情報から製品の特徴とペインポイントを理解する
-2. ペインポイントに基づき、メインタイトルで問題点や課題、悩み、不安を投げかける
+1. 入力情報とターゲット像から製品の特徴とターゲットのペインポイントを理解する
+2. ターゲットのペインポイントに基づき、メインタイトルで問題点や課題、悩み、不安を投げかける
 3. 製品の特徴に基づき、サブタイトルでメインタイトルで表現したインサイトを解決する手段や手法、アプローチ、その先に得られるベネフィットを表現する
 4. メインタイトルとサブタイトルをそれぞれ40文字以内で簡潔に表現する
-5. メインタイトルとサブタイトルを組み合わせ、参加したら何がわかるのかが明確なタイトルを生成する
+5. メインタイトルとサブタイトルを組み合わせ、ターゲットが参加したら何がわかるのかが明確なタイトルを生成する
 6. 感嘆符（！）が使用されていないことを確認する
 
 # Examples
@@ -233,7 +237,7 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
+    def generate_titles(self, context: str, target: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
         additional_context = ""
         if product_url:
             content = self.url_extractor.extract_with_trafilatura(product_url)
@@ -255,8 +259,7 @@ class TitleGenerator:
         prompt = f"""
 # 入力情報
 {context}
-{additional_context}
-""" + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
+""" + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
 
         result_text = None  # result_text を None で初期化
 
@@ -298,7 +301,7 @@ class TitleGenerator:
             if result_text:
                 st.error(f"AIからの応答:\n{result_text}")
             return []
-            
+
     def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
         parser = PydanticOutputParser(pydantic_object=RefinedTitles)
 
@@ -459,6 +462,10 @@ class HeadlineGenerator:
 見出し1：このセミナーを開催する、社会や企業の背景
 見出し2：このセミナーで訴求したい、課題、問題、悩み、不安
 見出し3：上記課題の解決の方向性
+- **ターゲット像を意識する**
+
+# ターゲット像
+{target}
 """
         self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
@@ -469,15 +476,16 @@ class HeadlineGenerator:
 }
 """
 
-    def generate_headlines(self, title: str, prompt_template: str = None) -> HeadlineSet:
+    def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
         """タイトルに基づいて見出しを生成"""
-        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt) + self.fixed_output_instructions
+        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(target=target) + self.fixed_output_instructions
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": "あなたは優秀なコピーライターです。ターゲット像を意識して見出しを作成してください。"},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0
@@ -524,21 +532,26 @@ class BodyGenerator:
 - セミナー内容の紹介および参加を促す表現は、3つ目の見出しのセクションでのみ行ってください。
 - 重要なキーワードは本文中に必ず含めてください。
 - あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
+- **ターゲット像を意識する**
+
+# ターゲット像
+{target}
 """
 
-    def generate_body(self, title: str, headlines: HeadlineSet, prompt_template: str = None) -> str:
+    def generate_body(self, title: str, headlines: HeadlineSet, target: str, prompt_template: str = None) -> str:
         prompt = self.fixed_prompt_part.format(
             title=title,
             background=headlines.background,
             problem=headlines.problem,
             solution=headlines.solution
-        ) + (prompt_template or self.user_editable_prompt)
+        ) + (prompt_template or self.user_editable_prompt).format(target=target)
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                    {"role": "user", "content": "あなたは優秀なコピーライターです。ターゲット像を意識して本文を作成してください。"},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0
@@ -650,6 +663,8 @@ def init_session_state():
         st.session_state.generated_body = None
     if 'manual_headlines' not in st.session_state:
         st.session_state.manual_headlines = None
+    if 'target_audience' not in st.session_state: # ターゲット像をsession_stateに追加
+        st.session_state.target_audience = ""
 
 def main():
     init_session_state()
@@ -687,7 +702,7 @@ def main():
 
     st.header("Step 1: 基本情報入力")
 
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1]) # col4 を追加
     with col1:
         product_url = st.text_input("製品URL")
         if product_url:
@@ -710,6 +725,9 @@ def main():
             options=st.session_state.available_categories
         )
         st.session_state.selected_category = category
+    with col4: # col4 にターゲット像入力欄を追加
+        target_audience = st.text_area("ターゲット像", height=80)
+        st.session_state.target_audience = target_audience
 
     uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
     file_content = ""
@@ -748,6 +766,7 @@ def main():
             try:
                 titles = title_generator.generate_titles(
                     context,
+                    st.session_state.target_audience, # ターゲット像を引数に追加
                     st.session_state.title_prompt,
                     product_url,
                     file_content
@@ -817,7 +836,7 @@ def main():
                         if refined_title:
                             # refined_main = refined_title.get("main_title", "")
                             # refined_sub = refined_title.get("sub_title", "")
-                            
+
                             # 修正後
                             refined_main = refined_title.main_title
                             refined_sub = refined_title.sub_title
@@ -904,6 +923,7 @@ def main():
                     try:
                         headlines = headline_generator.generate_headlines(
                             st.session_state.selected_title_for_headline,
+                            st.session_state.target_audience, # ターゲット像を引数に追加
                             st.session_state.headline_prompt
                         )
                         st.session_state.headlines = headlines
@@ -952,6 +972,7 @@ def main():
                             st.session_state.generated_body = body_generator.generate_body(
                                 st.session_state.selected_title_for_headline,
                                 st.session_state.manual_headlines,
+                                st.session_state.target_audience, # ターゲット像を引数に追加
                                 st.session_state.body_prompt
                             )
                         except Exception as e:
