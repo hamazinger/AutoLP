@@ -1,6 +1,7 @@
 import os
 os.environ["TRAFILATURA_USE_SIGNAL"] = "false"
 
+
 import streamlit as st
 import pandas as pd
 import numpy as np
