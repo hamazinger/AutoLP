@@ -1,149 +1,99 @@
-import os
-os.environ["TRAFILATURA_USE_SIGNAL"] = "false"
+                        st.session_state.generated_titles.append(
+                            GeneratedTitle(
+                                main_title=manual_main_title,
+                                sub_title=manual_sub_title,
+                                evaluation=evaluation,
+                                original_main_title=manual_main_title,
+                                original_sub_title=manual_sub_title
+                            )
+                        )
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from dataclasses import dataclass
-from typing import List, Dict, Optional
-from datetime import datetime
-import json
-import requests
-from bs4 import BeautifulSoup
-from trafilatura import fetch_url, extract
-from PyPDF2 import PdfReader
-from docx import Document
-from google.cloud import bigquery
-from google.oauth2 import service_account
-from openai import OpenAI
+                        display_evaluation_details(full_title, st.session_state.evaluator)
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {e}")
 
-# Langchainのインポート
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
-from langchain.output_parsers import PydanticOutputParser
-from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
+        # Step 3: 見出し生成
+        if st.session_state.generated_titles:
+            st.header("Step 3: 見出し生成")
 
-# Streamlitのページ設定を最初に記述
-st.set_page_config(
-    page_title="セミナータイトルジェネレーター",
-    layout="wide"
-)
+            available_titles = []
+            for gen_title in st.session_state.generated_titles:
+                full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
+                available_titles.append(full_title)
 
-hide_streamlit_style = """
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-</style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-@dataclass
-class WebContent:
-    title: str
-    description: str
-    main_content: str
-    error: Optional[str] = None
-
-@dataclass
-class TitleAnalysis:
-    predicted_speed: float
-    grade: str
-    attractive_words: List[str]
-    has_specific_problem: bool
-    has_exclamation: bool
-    title_length: int
-    category_score: float
-    reasoning: Dict[str, str]
-    evaluation_comment: str
-
-@dataclass
-class TitleEvaluation:
-    speed: float
-    grade: str
-    comment: str
-    timestamp: str = datetime.now().isoformat()
-
-@dataclass
-class GeneratedTitle:
-    main_title: str
-    sub_title: str
-    evaluation: TitleEvaluation
-    original_main_title: str
-    original_sub_title: str
-
-@dataclass
-class HeadlineSet:
-    background: str
-    problem: str
-    solution: str
-
-    def to_dict(self):
-        return {
-            "background": self.background,
-            "problem": self.problem,
-            "solution": self.solution
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict):
-        return cls(
-            background=data.get("background", ""),
-            problem=data.get("problem", ""),
-            solution=data.get("solution", "")
-        )
-
-class URLContentExtractor:
-    def __init__(self):
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0'
-        }
-
-    def extract_with_trafilatura(self, url: str) -> Optional[WebContent]:
-        try:
-            downloaded = fetch_url(url)
-            if downloaded is None:
-                return WebContent(
-                    title="",
-                    description="",
-                    main_content="",
-                    error="URLからのコンテンツ取得に失敗しました"
-                )
-
-            content = extract(downloaded, include_comments=False, include_tables=False)
-            if content is None:
-                return WebContent(
-                    title="",
-                    description="",
-                    main_content="",
-                    error="コンテンツの抽出に失敗しました"
-                )
-
-            soup = BeautifulSoup(downloaded, 'html.parser')
-            title = soup.title.string if soup.title else ""
-            meta_desc = soup.find('meta', {'name': 'description'})
-            description = meta_desc['content'] if meta_desc else ""
-
-            return WebContent(
-                title=title,
-                description=description,
-                main_content=content
-            )
-        except Exception as e:
-            return WebContent(
-                title="",
-                description="",
-                main_content="",
-                error=f"エラーが発生しました: {str(e)}"
+            st.session_state.selected_title_for_headline = st.selectbox(
+                "見出しを生成するタイトルを選択してください",
+                options=available_titles
             )
 
-class RefinedTitles(BaseModel):
-    main_title: str = Field(description="修正後のメインタイトル")
-    sub_title: str = Field(description="修正後のサブタイトル")
+            with st.expander("見出し生成プロンプトの編集", expanded=False):
+                st.session_state.headline_prompt = st.text_area(
+                    "プロンプトテンプレート",
+                    value=st.session_state.headline_prompt,
+                    height=400
+                )
 
-    def model_dump(self) -> Dict[str, str]:
-        return {
-            "main_title": self.main_title,
-            "sub_title": self.sub_title,
-        }
+            if st.button("見出しを生成", key="generate_headlines"):
+                with st.spinner("見出しを生成中..."):
+                    try:
+                        headlines = headline_generator.generate_headlines(
+                            st.session_state.selected_title_for_headline,
+                            st.session_state.headline_prompt
+                        )
+                        st.session_state.headlines = headlines
+                        st.session_state.manual_headlines = headlines
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {e}")
+
+            if st.session_state.manual_headlines:
+                st.subheader("生成された見出し（編集可能）")
+
+                background = st.text_area(
+                    "背景",
+                    value=st.session_state.manual_headlines.background,
+                    key="edit_background"
+                )
+                problem = st.text_area(
+                    "課題",
+                    value=st.session_state.manual_headlines.problem,
+                    key="edit_problem"
+                )
+                solution = st.text_area(
+                    "解決策",
+                    value=st.session_state.manual_headlines.solution,
+                    key="edit_solution"
+                )
+
+                st.session_state.manual_headlines = HeadlineSet(
+                    background=background,
+                    problem=problem,
+                    solution=solution
+                )
+
+                # Step 4: 本文生成
+                st.header("Step 4: 本文生成")
+
+                with st.expander("本文生成プロンプトの編集", expanded=False):
+                    st.session_state.body_prompt = st.text_area(
+                        "本文生成プロンプトテンプレート",
+                        value=st.session_state.body_prompt,
+                        height=400
+                    )
+
+                if st.button("本文を生成", key="generate_body"):
+                    with st.spinner("本文を生成中..."):
+                        try:
+                            st.session_state.generated_body = body_generator.generate_body(
+                                st.session_state.selected_title_for_headline,
+                                st.session_state.manual_headlines,
+                                st.session_state.body_prompt
+                            )
+                        except Exception as e:
+                            st.error(f"エラーが発生しました: {e}")
+
+                if st.session_state.generated_body:
+                    st.subheader("生成された本文")
+                    st.write(st.session_state.generated_body)
+
+if __name__ == "__main__":
+    main()
