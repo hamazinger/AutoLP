@@ -695,7 +695,7 @@ def init_session_state():
     
     # Slack投稿フォーマット用session_state (共通項目)
     if 'slack_common_参考情報' not in st.session_state:
-        st.session_state.slack_common_参考情報 = "https://sciencepark.co.jp/professional_service/bugdas/"
+        st.session_state.slack_common_参考情報 = ""
 
 def main():
     init_session_state()
