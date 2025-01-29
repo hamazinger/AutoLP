@@ -699,7 +699,7 @@ def init_session_state():
 
     # 企画案レビュー用のオファー情報
     if 'plan_オファー' not in st.session_state:
-        st.session_state.plan_オファー = ""
+        st.session_state['plan_オファー'] = "" 
 
 def main():
     init_session_state()
@@ -1057,7 +1057,11 @@ def main():
                         st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
 
                     # オファー入力欄を追加
-                    st.session_state.plan_オファー = st.text_area("オファー", key="plan_オファー")
+                    # st.session_state.plan_オファー = st.text_area("オファー", key="plan_オファー")
+                    
+                    # オファー入力欄を追加
+                    plan_オファー = st.text_area("オファー", value=st.session_state['plan_オファー'], key="plan_オファー")
+                    st.session_state['plan_オファー'] = plan_オファー  # 値を更新
 
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
                     plan_format_text = generate_plan_review_format(
