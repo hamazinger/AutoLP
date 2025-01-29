@@ -58,13 +58,13 @@ class TitleAnalysis:
     title_length: int
     category_score: float
     reasoning: Dict[str, str]
-    evaluation_comment: str  # 追加：評価コメント
+    evaluation_comment: str
 
 @dataclass
 class TitleEvaluation:
     speed: float
     grade: str
-    comment: str  # 追加：評価コメント
+    comment: str
     timestamp: str = datetime.now().isoformat()
 
 @dataclass
@@ -72,8 +72,8 @@ class GeneratedTitle:
     main_title: str
     sub_title: str
     evaluation: TitleEvaluation
-    original_main_title: str  # 修正前のメインタイトルを保持
-    original_sub_title: str    # 修正前のサブタイトルを保持
+    original_main_title: str
+    original_sub_title: str
 
 @dataclass
 class HeadlineSet:
@@ -139,44 +139,12 @@ class URLContentExtractor:
                 main_content="",
                 error=f"エラーが発生しました: {str(e)}"
             )
-        # except Exception as e:
-        #     return self.extract_with_fallback(url, str(e))
-
-    # def extract_with_fallback(self, url: str, prev_error: str) -> WebContent:
-    #     try:
-    #         # フォールバック処理: requestsで直接HTML取得
-    #         response = requests.get(url, headers=self.headers, timeout=10)
-    #         response.raise_for_status()
-
-    #         # 自動エンコード判定
-    #         response.encoding = response.apparent_encoding
-
-    #         soup = BeautifulSoup(response.text, 'html.parser')
-    #         title = soup.title.string if soup.title else ""
-    #         meta_desc = soup.find('meta', {'name': 'description'})
-    #         description = meta_desc['content'] if meta_desc else ""
-    #         body_content = '\n'.join([p.get_text() for p in soup.find_all('p')])
-
-    #         return WebContent(
-    #             title=title,
-    #             description=description,
-    #             main_content=body_content
-    #         )
-    #     except Exception as e:
-    #         # フォールバックも失敗
-    #         return WebContent(
-    #             title="",
-    #             description="",
-    #             main_content="",
-    #             error=f"フォールバックも失敗しました: {str(e)} (前エラー: {prev_error})"
-    #         )
 
 # Pydanticモデルの定義
 class RefinedTitles(BaseModel):
     main_title: str = Field(description="修正後のメインタイトル")
     sub_title: str = Field(description="修正後のサブタイトル")
 
-    # 非推奨の.dict()メソッドを削除し、.model_dump()を使用
     def model_dump(self) -> Dict[str, str]:
         return {
             "main_title": self.main_title,
@@ -237,7 +205,7 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, target: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
+def generate_titles(self, context: str, target: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
         additional_context = ""
         if product_url:
             content = self.url_extractor.extract_with_trafilatura(product_url)
@@ -261,10 +229,9 @@ class TitleGenerator:
 {context}
 """ + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
 
-        result_text = None  # result_text を None で初期化
+        result_text = None
 
         try:
-            # 新しい書き方で API を呼び出す
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -296,7 +263,7 @@ class TitleGenerator:
 
             return titles[:3]
 
-        except Exception as e:  # すべての例外をキャッチ
+        except Exception as e:
             st.error(f"エラーが発生しました: {e}")
             if result_text:
                 st.error(f"AIからの応答:\n{result_text}")
@@ -320,136 +287,6 @@ class TitleGenerator:
         except Exception as e:
             st.error(f"Langchainによるタイトル修正でエラーが発生しました: {e}")
             return None
-
-class SeminarTitleEvaluator:
-    def __init__(self, seminar_data: pd.DataFrame):
-        self.df = seminar_data
-        self._initialize_analytics()
-
-    def _initialize_analytics(self):
-        high_performing = self.df[self.df['Acquisition_Speed'] >= 2.5]
-        self.attractive_words = self._extract_effective_keywords(high_performing)
-        self.category_speeds = self.df.groupby('Major_Category')['Acquisition_Speed'].mean()
-        self.problem_indicators = [
-            '課題', '問題', 'による', 'ための', '向上', '改善', '解決', '対策',
-            'どうする', 'なぜ', 'どう', '方法', '実現', 'ポイント', '実践',
-            'ベストプラクティス', 'ノウハウ', '事例', '成功'
-        ]
-
-    def _extract_effective_keywords(self, high_performing_df) -> List[str]:
-        words = []
-        for title in high_performing_df['Seminar_Title']:
-            if isinstance(title, str):
-                clean_title = (title.replace('〜', ' ')
-                                 .replace('、', ' ')
-                                 .replace('【', ' ')
-                                 .replace('】', ' ')
-                                 .replace('「', ' ')
-                                 .replace('」', ' '))
-                title_words = [w for w in clean_title.split()
-                              if len(w) > 1 and not w.isdigit()]
-                words.extend(title_words)
-
-        word_counts = pd.Series(words).value_counts()
-        return list(word_counts[word_counts >= 2].index)
-
-    def _generate_evaluation_comment(self, analysis_data: dict) -> str:
-        """評価コメントを生成する新しいメソッド"""
-        comments = []
-
-        # スコアに基づくコメント
-        if analysis_data["predicted_speed"] >= 2.5:
-            comments.append("高い集客が期待できます")
-        elif analysis_data["predicted_speed"] >= 1.8:
-            comments.append("一定の集客が見込めます")
-        else:
-            comments.append("改善の余地があります")
-
-        # キーワードに基づくコメント
-        if analysis_data["attractive_words"]:
-            comments.append("効果的なキーワードが含まれています")
-        else:
-            comments.append("効果的なキーワードの追加を検討してください")
-
-        # 長さに基づくコメント
-        if analysis_data["title_length"] > 40:
-            comments.append("タイトルを短くすることを推奨します")
-
-        # 問題提起の有無
-        if not analysis_data["has_specific_problem"]:
-            comments.append("具体的な課題や問題提起の追加を検討してください")
-
-        return "。".join(comments)
-
-    def evaluate_title(self, title: str, category: str = None) -> TitleAnalysis:
-        base_score = self._calculate_base_score(title)
-
-        category_score = 0.0
-        if category and category in self.category_speeds:
-            category_avg = self.category_speeds[category]
-            category_score = 0.3 if category_avg > 2.5 else (
-                0.2 if category_avg > 2.0 else 0.1
-            )
-
-        final_score = min(max(base_score + category_score, 1.0), 3.0)
-
-        matching_words = [word for word in self.attractive_words if word in title]
-        has_problem = any(indicator in title for indicator in self.problem_indicators)
-
-        reasoning = {
-            "keywords": f"効果的なキーワード: {', '.join(matching_words) if matching_words else '該当なし'}",
-            "title_length": f"タイトルの長さ: {len(title)}文字 （{'適切' if len(title) <= 40 else '長い'}）",
-            "problem_indication": f"問題提起: {'あり' if has_problem else 'なし'}",
-            "exclamation": f"感嘆符: {'あり（減点）' if '!' in title or '！' in title else 'なし'}",
-            "category": f"カテゴリ評価: {category if category else '未指定'} (スコア: {category_score:.1f})",
-            "predicted_speed": f"予測される集客速度: {final_score:.1f}"
-        }
-
-        grade = 'A' if final_score >= 2.5 else 'B' if final_score >= 1.8 else 'C'
-
-        analysis_data = {
-            "predicted_speed": final_score,
-            "attractive_words": matching_words,
-            "has_specific_problem": has_problem,
-            "title_length": len(title)
-        }
-
-        evaluation_comment = self._generate_evaluation_comment(analysis_data)
-
-        return TitleAnalysis(
-            predicted_speed=final_score,
-            grade=grade,
-            attractive_words=matching_words,
-            has_specific_problem=has_problem,
-            has_exclamation='!' in title or '！' in title,
-            title_length=len(title),
-            category_score=category_score,
-            reasoning=reasoning,
-            evaluation_comment=evaluation_comment
-        )
-
-    def _calculate_base_score(self, title: str) -> float:
-        base_score = 1.0
-
-        matching_words = [word for word in self.attractive_words if word in title]
-        keyword_score = len(matching_words) * 0.4
-        base_score += min(keyword_score, 1.2)
-
-        title_length = len(title)
-        if title_length <= 20:
-            base_score += 0.3
-        elif title_length <= 40:
-            base_score += 0.1
-        elif title_length > 60:
-            base_score -= 0.2
-
-        if any(indicator in title for indicator in self.problem_indicators):
-            base_score += 0.4
-
-        if '!' in title or '！' in title:
-            base_score -= 0.3
-
-        return base_score
 
 class HeadlineGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
@@ -476,8 +313,7 @@ class HeadlineGenerator:
 }
 """
 
-    def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
-        """タイトルに基づいて見出しを生成"""
+def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
         prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(target=target) + self.fixed_output_instructions
 
         try:
@@ -563,79 +399,48 @@ class BodyGenerator:
             return ""
 
 # Slack投稿フォーマット生成機能 (ペイン案レビュー用)
-def generate_pain_review_format(企画名, 担当者名, 現状のペイン案, レビュー依頼事項, 参考情報, その他):
-    """
-    ペイン案レビュー用Slack投稿フォーマットを生成する関数
-    """
-    date_str = datetime.now().strftime("%Y-%m-%d")
-
+def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 現状のペイン案, 参考情報, ターゲット, pain_points):
     format_text = f"""【ペインポイント案の確認依頼】
 
 下記、ご確認をお願いします。
 
 ＜対象セミナー＞
-・開催日：8/4
-・主催企業：サイエンスパーク
-・集客人数：30
-・初稿UP期限：7/4(火)
+・開催日：{開催日}
+・主催企業：{主催企業}
+・集客人数：{集客人数}
+・初稿UP期限：{初稿UP期限}
 
 ＜商材＞
 {参考情報}
 
 ＜ターゲット＞
-・業種：日本国内のデバイスメーカー（またはデバイスをユーザー企業に販売するSIer ※ユーザー企業は対象外）
-・役職・職種：IoT機器の開発に携わる責任者
+{ターゲット}
 
 ＜ペインポイント＞
-{現状のペイン案}
-
----
-**企画名:** {企画名}
-**担当者:** {担当者名}
-**レビュー依頼日:** {date_str}
-
----
-
-**依頼事項:**
-{レビュー依頼事項}
-
----
-
-**その他:**
-{その他}
-
----
-
-@寺田 さん、ペイン案レビューをお願いいたします！
+{pain_points}
 """
     return format_text
 
 # Slack投稿フォーマット生成機能 (企画案レビュー用)
-def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レビュー依頼事項, 参考情報, その他, セミナータイトル, 見出し):
-    """
-    企画案レビュー用Slack投稿フォーマットを生成する関数
-    """
-    date_str = datetime.now().strftime("%Y-%m-%d")
-
+def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 見出し, ターゲット, pain_points):
     format_text = f"""【タイトル・見出しの確認依頼】
 
 下記、ご確認をお願いします。
 
 ＜対象セミナー＞
-・開催日：8/4
-・主催企業：サイエンスパーク
-・集客人数：30
-・初稿UP期限：7/4(火)
+・開催日：{開催日}
+・主催企業：{主催企業}
+・集客人数：{集客人数}
+・初稿UP期限：{初稿UP期限}
 
 ＜商材＞
 {参考情報}
 
 ＜ターゲット＞
-・業種：日本国内のデバイスメーカー（またはデバイスをユーザー企業に販売するSIer ※ユーザー企業は対象外）
-・役職・職種：IoT機器の開発に携わる責任者
+{ターゲット}
 
 ＜ペインポイント＞
-・IoTデバイスの脆弱性に不安がある、どう対策すればよいのかわからない
+{pain_points}
 
 ＜オファー＞
 ・脆弱性の簡易診断
@@ -646,30 +451,6 @@ def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レ
 
 ■見出し：
 {見出し}
-
----
-**企画名:** {企画名}
-**担当者:** {担当者名}
-**レビュー依頼日:** {date_str}
-
----
-
-**現状の企画案:**
-{現状の企画案}
-
----
-
-**依頼事項:**
-{レビュー依頼事項}
-
----
-
-**その他:**
-{その他}
-
----
-
-@寺田 さん、企画案レビューをお願いいたします！
 """
     return format_text
 
@@ -775,38 +556,22 @@ def init_session_state():
         st.session_state.generated_body = None
     if 'manual_headlines' not in st.session_state:
         st.session_state.manual_headlines = None
-    if 'target_audience' not in st.session_state: # ターゲット像をsession_stateに追加
+    if 'target_audience' not in st.session_state:
         st.session_state.target_audience = ""
-    # Slack投稿フォーマット用session_state (ペイン案レビュー用)
-    if 'slack_pain_企画名' not in st.session_state:
-        st.session_state.slack_pain_企画名 = ""
-    if 'slack_pain_担当者名' not in st.session_state:
-        st.session_state.slack_pain_担当者名 = ""
-    if 'slack_pain_現状のペイン案' not in st.session_state:
-        st.session_state.slack_pain_現状のペイン案 = ""
-    if 'slack_pain_レビュー依頼事項' not in st.session_state:
-        st.session_state.slack_pain_レビュー依頼事項 = ""
-    if 'slack_pain_参考情報' not in st.session_state:
-        st.session_state.slack_pain_参考情報 = ""
-    if 'slack_pain_その他' not in st.session_state:
-        st.session_state.slack_pain_その他 = ""
-    # Slack投稿フォーマット用session_state (企画案レビュー用)
-    if 'slack_plan_企画名' not in st.session_state:
-        st.session_state.slack_plan_企画名 = ""
-    if 'slack_plan_担当者名' not in st.session_state:
-        st.session_state.slack_plan_担当者名 = ""
-    if 'slack_plan_現状の企画案' not in st.session_state:
-        st.session_state.slack_plan_現状の企画案 = ""
-    if 'slack_plan_レビュー依頼事項' not in st.session_state:
-        st.session_state.slack_plan_レビュー依頼事項 = ""
-    if 'slack_plan_参考情報' not in st.session_state:
-        st.session_state.slack_plan_参考情報 = ""
-    if 'slack_plan_その他' not in st.session_state:
-        st.session_state.slack_plan_その他 = ""
+    
+    # セミナー開催情報用のsession_state（空の初期値）
+    if 'seminar_開催日' not in st.session_state:
+        st.session_state.seminar_開催日 = ""
+    if 'seminar_主催企業' not in st.session_state:
+        st.session_state.seminar_主催企業 = ""
+    if 'seminar_集客人数' not in st.session_state:
+        st.session_state.seminar_集客人数 = ""
+    if 'seminar_初稿UP期限' not in st.session_state:
+        st.session_state.seminar_初稿UP期限 = ""
+    
     # Slack投稿フォーマット用session_state (共通項目)
     if 'slack_common_参考情報' not in st.session_state:
-        st.session_state.slack_common_参考情報 = "https://sciencepark.co.jp/professional_service/bugdas/" # デフォルト値を設定
-
+        st.session_state.slack_common_参考情報 = "https://sciencepark.co.jp/professional_service/bugdas/"
 
 def main():
     init_session_state()
@@ -817,7 +582,7 @@ def main():
         st.error("OpenAI APIキーが設定されていません")
         return
 
-    st.title("セミナータイトル・告知文 ジェネレーター") # タイトル変更
+    st.title("セミナータイトル・告知文 ジェネレーター")
 
     if st.session_state.seminar_data is None:
         with st.spinner("セミナーデータを読み込んでいます..."):
@@ -844,7 +609,7 @@ def main():
 
     st.header("Step 1: 基本情報入力")
 
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1]) # col4 を追加
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         product_url = st.text_input("製品URL")
         if product_url:
@@ -867,7 +632,7 @@ def main():
             options=st.session_state.available_categories
         )
         st.session_state.selected_category = category
-    with col4: # col4 にターゲット像入力欄を追加
+    with col4:
         target_audience = st.text_area("ターゲット像", height=80)
         st.session_state.target_audience = target_audience
 
@@ -896,7 +661,8 @@ def main():
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
             "プロンプトテンプレート",
-            value=st.session_state.title_prompt,            height=400
+            value=st.session_state.title_prompt,
+            height=400
         )
 
     if st.button("タイトルを生成", key="generate_titles"):
@@ -908,7 +674,7 @@ def main():
             try:
                 titles = title_generator.generate_titles(
                     context,
-                    st.session_state.target_audience, # ターゲット像を引数に追加
+                    st.session_state.target_audience,
                     st.session_state.title_prompt,
                     product_url,
                     file_content
@@ -934,19 +700,20 @@ def main():
                             main_title=main_title,
                             sub_title=sub_title,
                             evaluation=evaluation,
-                            original_main_title=main_title,  # 元のタイトルを保存
-                            original_sub_title=sub_title    # 元のタイトルを保存
+                            original_main_title=main_title,
+                            original_sub_title=sub_title
                         )
                     )
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
 
+    # ... [以下、UIの残りの部分] ...
     if st.session_state.generated_titles:
         st.header("Step 2: タイトル評価・選択")
 
         st.subheader("生成タイトル")
         for i, gen_title in enumerate(st.session_state.generated_titles):
-            cols = st.columns([0.5, 2, 2, 1, 1, 2, 1])  # 評価コメントと修正用カラムを追加
+            cols = st.columns([0.5, 2, 2, 1, 1, 2, 1])
             with cols[0]:
                 if st.radio(
                     "選択",
@@ -976,10 +743,6 @@ def main():
                     with st.spinner("タイトル修正中..."):
                         refined_title = title_generator.refine_title(gen_title.main_title, gen_title.sub_title, 修正プロンプト)
                         if refined_title:
-                            # refined_main = refined_title.get("main_title", "")
-                            # refined_sub = refined_title.get("sub_title", "")
-
-                            # 修正後
                             refined_main = refined_title.main_title
                             refined_sub = refined_title.sub_title
 
@@ -997,8 +760,7 @@ def main():
                                 original_main_title=gen_title.original_main_title,
                                 original_sub_title=gen_title.original_sub_title
                             )
-                            # st.experimental_rerun()
-                            st.rerun()  # 新しい書き方
+                            st.rerun()
 
         # 手動タイトル評価
         st.subheader("手動タイトル評価")
@@ -1040,7 +802,7 @@ def main():
                         st.error(f"エラーが発生しました: {e}")
 
         # Step 3: 見出し生成
-        if st.session_state.generated_titles and st.session_state.selected_title: # タイトルが選択されている場合のみ表示
+        if st.session_state.generated_titles and st.session_state.selected_title:
             st.header("Step 3: 見出し生成")
 
             available_titles = []
@@ -1051,7 +813,7 @@ def main():
             st.session_state.selected_title_for_headline = st.selectbox(
                 "見出しを生成するタイトルを選択してください",
                 options=available_titles,
-                index=available_titles.index(st.session_state.selected_title) if st.session_state.selected_title in available_titles else 0 # デフォルトで選択済みのタイトルを選択
+                index=available_titles.index(st.session_state.selected_title) if st.session_state.selected_title in available_titles else 0
             )
 
             with st.expander("見出し生成プロンプトの編集", expanded=False):
@@ -1066,7 +828,7 @@ def main():
                     try:
                         headlines = headline_generator.generate_headlines(
                             st.session_state.selected_title_for_headline,
-                            st.session_state.target_audience, # ターゲット像を引数に追加
+                            st.session_state.target_audience,
                             st.session_state.headline_prompt
                         )
                         st.session_state.headlines = headlines
@@ -1115,7 +877,7 @@ def main():
                             st.session_state.generated_body = body_generator.generate_body(
                                 st.session_state.selected_title_for_headline,
                                 st.session_state.manual_headlines,
-                                st.session_state.target_audience, # ターゲット像を引数に追加
+                                st.session_state.target_audience,
                                 st.session_state.body_prompt
                             )
                         except Exception as e:
@@ -1125,65 +887,68 @@ def main():
                     st.subheader("生成された本文")
                     st.write(st.session_state.generated_body)
 
-        # Step 5: 寺田レビュー Slack投稿フォーマット生成 (分割)
-        if st.session_state.generated_body: # 本文が生成されている場合のみ表示
-            st.header("Step 5: 寺田レビュー Slack投稿フォーマット生成") # ヘッダー
+        # Step 5: Slack投稿フォーマット生成
+        if st.session_state.generated_body:
+            st.header("Step 5: Slack投稿フォーマット生成")
 
-            # タブ UI で分割
-            slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"]) # タブ UI
+            slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"])
 
-            # ペイン案レビュー用タブ
-            with slack_format_tab[0]: # 1つ目のタブ
-                st.subheader("ペイン案レビュー Slack投稿フォーマット") # subheader
-                with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True): # expander
-                    st.session_state.slack_pain_企画名 = st.text_input("企画名", value=st.session_state.slack_pain_企画名, key="pain_企画名") # key をタブ内でユニークに
-                    st.session_state.slack_pain_担当者名 = st.text_input("担当者名", value=st.session_state.slack_pain_担当者名, key="pain_担当者名") # key をタブ内でユニークに
-                    st.session_state.slack_pain_現状のペイン案 = st.text_area("現状のペイン案", value=st.session_state.slack_pain_現状のペイン案, key="pain_現状のペイン案") # key をタブ内でユニークに
-                    st.session_state.slack_pain_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_pain_レビュー依頼事項, key="pain_レビュー依頼事項") # key をタブ内でユニークに
-                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="pain_参考情報") # key をタブ内でユニークに、valueに共通の参考情報を設定
-                    st.session_state.slack_pain_その他 = st.text_area("その他", value=st.session_state.slack_pain_その他, key="pain_その他") # key をタブ内でユニークに
+            with slack_format_tab[0]:
+                st.subheader("ペイン案レビュー Slack投稿フォーマット")
+                with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.session_state.seminar_開催日 = st.text_input("開催日", key="pain_開催日")
+                        st.session_state.seminar_集客人数 = st.text_input("集客人数", key="pain_集客人数")
+                    with col2:
+                        st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
+                        st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="pain_初稿UP期限")
+                    
+                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="pain_参考情報")
 
-                if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"): # ボタン (key をユニークに)
-                    pain_format_text = generate_pain_review_format( # ペイン案レビュー用関数呼び出し
-                        st.session_state.slack_pain_企画名,
-                        st.session_state.slack_pain_担当者名,
-                        st.session_state.slack_pain_現状のペイン案,
-                        st.session_state.slack_pain_レビュー依頼事項,
+                if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"):
+                    pain_format_text = generate_pain_review_format(
+                        st.session_state.seminar_開催日,
+                        st.session_state.seminar_主催企業,
+                        st.session_state.seminar_集客人数,
+                        st.session_state.seminar_初稿UP期限,
+                        pain_points,
                         st.session_state.slack_pain_参考情報,
-                        st.session_state.slack_pain_その他
+                        st.session_state.target_audience,
+                        pain_points
                     )
-                    st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
-                    st.code(pain_format_text, language="text") # コード表示
-                    # st.markdown プレビューを削除
+                    st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)")
+                    st.code(pain_format_text, language="text")
 
-            # 企画案レビュー用タブ
-            with slack_format_tab[1]: # 2つ目のタブ
-                st.subheader("企画案レビュー Slack投稿フォーマット") # subheader
-                with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True): # expander
-                    st.session_state.slack_plan_企画名 = st.text_input("企画名", value=st.session_state.slack_plan_企画名, key="plan_企画名") # key をタブ内でユニークに
-                    st.session_state.slack_plan_担当者名 = st.text_input("担当者名", value=st.session_state.slack_plan_担当者名, key="plan_担当者名") # key をタブ内でユニークに
-                    st.session_state.slack_plan_現状の企画案 = st.text_area("現状の企画案", value=st.session_state.slack_plan_現状の企画案, key="plan_現状の企画案") # key をタブ内でユニークに
-                    st.session_state.slack_plan_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_plan_レビュー依頼事項, key="plan_レビュー依頼事項") # key をタブ内でユニークに
-                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="plan_参考情報") # key をタブ内でユニークに、valueに共通の参考情報を設定
-                    st.session_state.slack_plan_その他 = st.text_area("その他", value=st.session_state.slack_plan_その他, key="plan_その他") # key をタブ内でユニークに
+            with slack_format_tab[1]:
+                st.subheader("企画案レビュー Slack投稿フォーマット")
+                with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.session_state.seminar_開催日 = st.text_input("開催日", key="plan_開催日")
+                        st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
+                    with col2:
+                        st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
+                        st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
+                    
+                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="plan_参考情報")
 
-                if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"): # ボタン (key をユニークに)
-                    plan_format_text = generate_plan_review_format( # 企画案レビュー用関数呼び出し
-                        st.session_state.slack_plan_企画名,
-                        st.session_state.slack_plan_担当者名,
-                        st.session_state.slack_plan_現状の企画案,
-                        st.session_state.slack_plan_レビュー依頼事項,
+                if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
+                    plan_format_text = generate_plan_review_format(
+                        st.session_state.seminar_開催日,
+                        st.session_state.seminar_主催企業,
+                        st.session_state.seminar_集客人数,
+                        st.session_state.seminar_初稿UP期限,
                         st.session_state.slack_plan_参考情報,
-                        st.session_state.slack_plan_その他,
-                        st.session_state.selected_title_for_headline, # セミナータイトルを自動入力
+                        st.session_state.selected_title_for_headline,
                         f"""{st.session_state.manual_headlines.background}
 {st.session_state.manual_headlines.problem}
-{st.session_state.manual_headlines.solution}""" # 見出しを自動入力
+{st.session_state.manual_headlines.solution}""",
+                        st.session_state.target_audience,
+                        pain_points
                     )
-                    st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
-                    st.code(plan_format_text, language="text") # コード表示
-                    # st.markdown プレビューを削除
-
+                    st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
+                    st.code(plan_format_text, language="text")
 
 if __name__ == "__main__":
     main()
