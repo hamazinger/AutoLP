@@ -562,6 +562,87 @@ class BodyGenerator:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return ""
 
+# Slack投稿フォーマット生成機能 (ペイン案レビュー用)
+def generate_pain_review_format(企画名, 担当者名, 現状のペイン案, レビュー依頼事項, 参考情報, その他):
+    """
+    ペイン案レビュー用Slack投稿フォーマットを生成する関数
+    """
+    date_str = datetime.now().strftime("%Y-%m-%d")
+
+    format_text = f"""
+## 【ペイン案レビュー依頼】
+
+**企画名:** {企画名}
+**担当者:** {担当者名}
+**レビュー依頼日:** {date_str}
+
+---
+
+**現状のペイン案:**
+{現状のペイン案}
+
+---
+
+**依頼事項:**
+{レビュー依頼事項}
+
+---
+
+**参考情報:**
+{参考情報}
+
+---
+
+**その他:**
+{その他}
+
+---
+
+@寺田 さん、ペイン案レビューをお願いいたします！
+"""
+    return format_text
+
+# Slack投稿フォーマット生成機能 (企画案レビュー用)
+def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レビュー依頼事項, 参考情報, その他):
+    """
+    企画案レビュー用Slack投稿フォーマットを生成する関数
+    """
+    date_str = datetime.now().strftime("%Y-%m-%d")
+
+    format_text = f"""
+## 【企画案レビュー依頼】
+
+**企画名:** {企画名}
+**担当者:** {担当者名}
+**レビュー依頼日:** {date_str}
+
+---
+
+**現状の企画案:**
+{現状の企画案}
+
+---
+
+**依頼事項:**
+{レビュー依頼事項}
+
+---
+
+**参考情報:**
+{参考情報}
+
+---
+
+**その他:**
+{その他}
+
+---
+
+@寺田 さん、企画案レビューをお願いいたします！
+"""
+    return format_text
+
+
 class InMemoryCache:
     def __init__(self):
         if 'title_cache' not in st.session_state:
@@ -665,6 +746,33 @@ def init_session_state():
         st.session_state.manual_headlines = None
     if 'target_audience' not in st.session_state: # ターゲット像をsession_stateに追加
         st.session_state.target_audience = ""
+    # Slack投稿フォーマット用session_state (ペイン案レビュー用)
+    if 'slack_pain_企画名' not in st.session_state:
+        st.session_state.slack_pain_企画名 = ""
+    if 'slack_pain_担当者名' not in st.session_state:
+        st.session_state.slack_pain_担当者名 = ""
+    if 'slack_pain_現状のペイン案' not in st.session_state:
+        st.session_state.slack_pain_現状のペイン案 = ""
+    if 'slack_pain_レビュー依頼事項' not in st.session_state:
+        st.session_state.slack_pain_レビュー依頼事項 = ""
+    if 'slack_pain_参考情報' not in st.session_state:
+        st.session_state.slack_pain_参考情報 = ""
+    if 'slack_pain_その他' not in st.session_state:
+        st.session_state.slack_pain_その他 = ""
+    # Slack投稿フォーマット用session_state (企画案レビュー用)
+    if 'slack_plan_企画名' not in st.session_state:
+        st.session_state.slack_plan_企画名 = ""
+    if 'slack_plan_担当者名' not in st.session_state:
+        st.session_state.slack_plan_担当者名 = ""
+    if 'slack_plan_現状の企画案' not in st.session_state:
+        st.session_state.slack_plan_現状の企画案 = ""
+    if 'slack_plan_レビュー依頼事項' not in st.session_state:
+        st.session_state.slack_plan_レビュー依頼事項 = ""
+    if 'slack_plan_参考情報' not in st.session_state:
+        st.session_state.slack_plan_参考情報 = ""
+    if 'slack_plan_その他' not in st.session_state:
+        st.session_state.slack_plan_その他 = ""
+
 
 def main():
     init_session_state()
@@ -675,7 +783,7 @@ def main():
         st.error("OpenAI APIキーが設定されていません")
         return
 
-    st.title("セミナータイトルジェネレーター")
+    st.title("セミナータイトル・告知文 ジェネレーター") # タイトル変更
 
     if st.session_state.seminar_data is None:
         with st.spinner("セミナーデータを読み込んでいます..."):
@@ -898,7 +1006,7 @@ def main():
                         st.error(f"エラーが発生しました: {e}")
 
         # Step 3: 見出し生成
-        if st.session_state.generated_titles:
+        if st.session_state.generated_titles and st.session_state.selected_title: # タイトルが選択されている場合のみ表示
             st.header("Step 3: 見出し生成")
 
             available_titles = []
@@ -908,7 +1016,8 @@ def main():
 
             st.session_state.selected_title_for_headline = st.selectbox(
                 "見出しを生成するタイトルを選択してください",
-                options=available_titles
+                options=available_titles,
+                index=available_titles.index(st.session_state.selected_title) if st.session_state.selected_title in available_titles else 0 # デフォルトで選択済みのタイトルを選択
             )
 
             with st.expander("見出し生成プロンプトの編集", expanded=False):
@@ -981,6 +1090,66 @@ def main():
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
                     st.write(st.session_state.generated_body)
+
+        # Step 5: 寺田レビュー Slack投稿フォーマット生成 (分割)
+        if st.session_state.generated_body: # 本文が生成されている場合のみ表示
+            st.header("Step 5: 寺田レビュー Slack投稿フォーマット生成") # ヘッダー
+
+            # タブ UI で分割
+            slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"]) # タブ UI
+
+            # ペイン案レビュー用タブ
+            with slack_format_tab[0]: # 1つ目のタブ
+                st.subheader("ペイン案レビュー Slack投稿フォーマット") # subheader
+                with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True): # expander
+                    st.session_state.slack_pain_企画名 = st.text_input("企画名", value=st.session_state.slack_pain_企画名, key="pain_企画名") # key をタブ内でユニークに
+                    st.session_state.slack_pain_担当者名 = st.text_input("担当者名", value=st.session_state.slack_pain_担当者名, key="pain_担当者名") # key をタブ内でユニークに
+                    st.session_state.slack_pain_現状のペイン案 = st.text_area("現状のペイン案", value=st.session_state.slack_pain_現状のペイン案, key="pain_現状のペイン案") # key をタブ内でユニークに
+                    st.session_state.slack_pain_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_pain_レビュー依頼事項, key="pain_レビュー依頼事項") # key をタブ内でユニークに
+                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_pain_参考情報, key="pain_参考情報") # key をタブ内でユニークに
+                    st.session_state.slack_pain_その他 = st.text_area("その他", value=st.session_state.slack_pain_その他, key="pain_その他") # key をタブ内でユニークに
+
+                if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"): # ボタン (key をユニークに)
+                    pain_format_text = generate_pain_review_format( # ペイン案レビュー用関数呼び出し
+                        st.session_state.slack_pain_企画名,
+                        st.session_state.slack_pain_担当者名,
+                        st.session_state.slack_pain_現状のペイン案,
+                        st.session_state.slack_pain_レビュー依頼事項,
+                        st.session_state.slack_pain_参考情報,
+                        st.session_state.slack_pain_その他
+                    )
+                    st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
+                    st.code(pain_format_text, language="markdown") # コード表示
+
+                    st.subheader("プレビュー (Slackでの表示イメージ)") # subheader プレビュー
+                    st.markdown(pain_format_text) # markdown プレビュー
+
+            # 企画案レビュー用タブ
+            with slack_format_tab[1]: # 2つ目のタブ
+                st.subheader("企画案レビュー Slack投稿フォーマット") # subheader
+                with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True): # expander
+                    st.session_state.slack_plan_企画名 = st.text_input("企画名", value=st.session_state.slack_plan_企画名, key="plan_企画名") # key をタブ内でユニークに
+                    st.session_state.slack_plan_担当者名 = st.text_input("担当者名", value=st.session_state.slack_plan_担当者名, key="plan_担当者名") # key をタブ内でユニークに
+                    st.session_state.slack_plan_現状の企画案 = st.text_area("現状の企画案", value=st.session_state.slack_plan_現状の企画案, key="plan_現状の企画案") # key をタブ内でユニークに
+                    st.session_state.slack_plan_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_plan_レビュー依頼事項, key="plan_レビュー依頼事項") # key をタブ内でユニークに
+                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_plan_参考情報, key="plan_参考情報") # key をタブ内でユニークに
+                    st.session_state.slack_plan_その他 = st.text_area("その他", value=st.session_state.slack_plan_その他, key="plan_その他") # key をタブ内でユニークに
+
+                if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"): # ボタン (key をユニークに)
+                    plan_format_text = generate_plan_review_format( # 企画案レビュー用関数呼び出し
+                        st.session_state.slack_plan_企画名,
+                        st.session_state.slack_plan_担当者名,
+                        st.session_state.slack_plan_現状の企画案,
+                        st.session_state.slack_plan_レビュー依頼事項,
+                        st.session_state.slack_plan_参考情報,
+                        st.session_state.slack_plan_その他
+                    )
+                    st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
+                    st.code(plan_format_text, language="markdown") # コード表示
+
+                    st.subheader("プレビュー (Slackでの表示イメージ)") # subheader プレビュー
+                    st.markdown(plan_format_text) # markdown プレビュー
+
 
 if __name__ == "__main__":
     main()
