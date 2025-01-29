@@ -205,69 +205,69 @@ class TitleGenerator:
 }
 """
 
-def generate_titles(self, context: str, target: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
-        additional_context = ""
-        if product_url:
-            content = self.url_extractor.extract_with_trafilatura(product_url)
-            if content and not content.error:
-                additional_context += f"""
-製品タイトル: {content.title}
-製品説明: {content.description}
-製品詳細: {content.main_content[:1000]}
-"""
-            else:
-                st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
-
-        if file_content:
-            additional_context += f"""
-アップロードされたファイルの内容:
-{file_content}
-"""
-
-        prompt = f"""
-# 入力情報
-{context}
-""" + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
-
-        result_text = None
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0
-            )
-
-            result_text = response.choices[0].message.content.strip()
-
-            try:
-                result = json.loads(result_text)
-            except json.JSONDecodeError:
-                start_index = result_text.find('{')
-                end_index = result_text.rfind('}') + 1
-                if start_index != -1 and end_index > start_index:
-                    json_text = result_text[start_index:end_index]
-                    result = json.loads(json_text)
+    def generate_titles(self, context: str, target: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
+            additional_context = ""
+            if product_url:
+                content = self.url_extractor.extract_with_trafilatura(product_url)
+                if content and not content.error:
+                    additional_context += f"""
+    製品タイトル: {content.title}
+    製品説明: {content.description}
+    製品詳細: {content.main_content[:1000]}
+    """
                 else:
-                    raise ValueError("タイトルを抽出できませんでした")
-
-            if not isinstance(result, dict) or "titles" not in result:
-                raise ValueError("不正な応答形式です")
-
-            titles = result["titles"]
-            if not isinstance(titles, list) or not titles:
-                raise ValueError("タイトルが見つかりません")
-
-            return titles[:3]
-
-        except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
-            if result_text:
-                st.error(f"AIからの応答:\n{result_text}")
-            return []
+                    st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
+    
+            if file_content:
+                additional_context += f"""
+    アップロードされたファイルの内容:
+    {file_content}
+    """
+    
+            prompt = f"""
+    # 入力情報
+    {context}
+    """ + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
+    
+            result_text = None
+    
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0
+                )
+    
+                result_text = response.choices[0].message.content.strip()
+    
+                try:
+                    result = json.loads(result_text)
+                except json.JSONDecodeError:
+                    start_index = result_text.find('{')
+                    end_index = result_text.rfind('}') + 1
+                    if start_index != -1 and end_index > start_index:
+                        json_text = result_text[start_index:end_index]
+                        result = json.loads(json_text)
+                    else:
+                        raise ValueError("タイトルを抽出できませんでした")
+    
+                if not isinstance(result, dict) or "titles" not in result:
+                    raise ValueError("不正な応答形式です")
+    
+                titles = result["titles"]
+                if not isinstance(titles, list) or not titles:
+                    raise ValueError("タイトルが見つかりません")
+    
+                return titles[:3]
+    
+            except Exception as e:
+                st.error(f"エラーが発生しました: {e}")
+                if result_text:
+                    st.error(f"AIからの応答:\n{result_text}")
+                return []
 
     def refine_title(self, main_title: str, sub_title: str, prompt: str) -> Optional[Dict[str, str]]:
         parser = PydanticOutputParser(pydantic_object=RefinedTitles)
@@ -313,36 +313,36 @@ class HeadlineGenerator:
 }
 """
 
-def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
-        prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(target=target) + self.fixed_output_instructions
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "あなたは優秀なコピーライターです。"},
-                    {"role": "user", "content": "あなたは優秀なコピーライターです。ターゲット像を意識して見出しを作成してください。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0
-            )
-
-            result_text = response.choices[0].message.content.strip()
-
+    def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
+            prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(target=target) + self.fixed_output_instructions
+    
             try:
-                result = json.loads(result_text)
-            except json.JSONDecodeError:
-                start_index = result_text.find('{')
-                end_index = result_text.rfind('}') + 1
-                if start_index != -1 and end_index > start_index:
-                    json_text = result_text[start_index:end_index]
-                    result = json.loads(json_text)
-
-            return HeadlineSet.from_dict(result)
-
-        except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
-            return HeadlineSet("", "", "")
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "あなたは優秀なコピーライターです。"},
+                        {"role": "user", "content": "あなたは優秀なコピーライターです。ターゲット像を意識して見出しを作成してください。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0
+                )
+    
+                result_text = response.choices[0].message.content.strip()
+    
+                try:
+                    result = json.loads(result_text)
+                except json.JSONDecodeError:
+                    start_index = result_text.find('{')
+                    end_index = result_text.rfind('}') + 1
+                    if start_index != -1 and end_index > start_index:
+                        json_text = result_text[start_index:end_index]
+                        result = json.loads(json_text)
+    
+                return HeadlineSet.from_dict(result)
+    
+            except Exception as e:
+                st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+                return HeadlineSet("", "", "")
 
 class BodyGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
