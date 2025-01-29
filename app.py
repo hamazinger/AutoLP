@@ -1140,7 +1140,7 @@ def main():
                     st.session_state.slack_pain_担当者名 = st.text_input("担当者名", value=st.session_state.slack_pain_担当者名, key="pain_担当者名") # key をタブ内でユニークに
                     st.session_state.slack_pain_現状のペイン案 = st.text_area("現状のペイン案", value=st.session_state.slack_pain_現状のペイン案, key="pain_現状のペイン案") # key をタブ内でユニークに
                     st.session_state.slack_pain_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_pain_レビュー依頼事項, key="pain_レビュー依頼事項") # key をタブ内でユニークに
-                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_pain_参考情報, key="pain_参考情報", value=st.session_state.slack_common_参考情報) # key をタブ内でユニークに、valueに共通の参考情報を設定
+                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="pain_参考情報") # key をタブ内でユニークに、valueに共通の参考情報を設定
                     st.session_state.slack_pain_その他 = st.text_area("その他", value=st.session_state.slack_pain_その他, key="pain_その他") # key をタブ内でユニークに
 
                 if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"): # ボタン (key をユニークに)
@@ -1164,7 +1164,7 @@ def main():
                     st.session_state.slack_plan_担当者名 = st.text_input("担当者名", value=st.session_state.slack_plan_担当者名, key="plan_担当者名") # key をタブ内でユニークに
                     st.session_state.slack_plan_現状の企画案 = st.text_area("現状の企画案", value=st.session_state.slack_plan_現状の企画案, key="plan_現状の企画案") # key をタブ内でユニークに
                     st.session_state.slack_plan_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_plan_レビュー依頼事項, key="plan_レビュー依頼事項") # key をタブ内でユニークに
-                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_plan_参考情報, key="plan_参考情報", value=st.session_state.slack_common_参考情報) # key をタブ内でユニークに、valueに共通の参考情報を設定
+                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="plan_参考情報") # key をタブ内でユニークに、valueに共通の参考情報を設定
                     st.session_state.slack_plan_その他 = st.text_area("その他", value=st.session_state.slack_plan_その他, key="plan_その他") # key をタブ内でユニークに
 
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"): # ボタン (key をユニークに)
