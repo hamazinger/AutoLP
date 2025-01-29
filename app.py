@@ -584,7 +584,7 @@ def generate_pain_review_format(企画名, 担当者名, 現状のペイン案, 
 
 ＜ターゲット＞
 ・業種：{st.session_state.get('業種', '')}
-・役職・職種：{st.session_state.get('役職・職種', '')}
+・役職・職種：{st.session_state.get('役職_職種', '')}
 
 ＜ペインポイント＞
 ・{st.session_state.get('ペインポイント', '')}
@@ -642,7 +642,7 @@ def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レ
 
 ＜ターゲット＞
 ・業種：{st.session_state.get('業種', '')}
-・役職・職種：{st.session_state.get('役職・職種', '')}
+・役職・職種：{st.session_state.get('役職_職種', '')}
 
 ＜ペインポイント＞
 ・{st.session_state.get('ペインポイント', '')}
@@ -831,8 +831,8 @@ def init_session_state():
         st.session_state.商材URL = "https://sciencepark.co.jp/professional_service/bugdas/"
     if '業種' not in st.session_state:
         st.session_state.業種 = "日本国内のデバイスメーカー（またはデバイスをユーザー企業に販売するSIer ※ユーザー企業は対象外）"
-    if '役職・職種' not in st.session_state:
-        st.session_state.役職・職種 = "IoT機器の開発に携わる責任者"
+    if '役職_職種' not in st.session_state: # 変数名を修正
+        st.session_state.役職_職種 = "IoT機器の開発に携わる責任者" # 変数名を修正
     if 'ペインポイント' not in st.session_state:
         st.session_state.ペインポイント = "IoTデバイスの脆弱性に不安がある、どう対策すればよいのかわからない"
     if 'オファー' not in st.session_state:
@@ -1195,10 +1195,6 @@ def main():
                     )
                     st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
                     st.code(pain_format_text, language="text") # コード表示
-                    # st.code(pain_format_text, language="markdown") # コード表示 # markdownをtextに変更
-
-                    # st.subheader("プレビュー (Slackでの表示イメージ)") # subheader プレビュー # プレビューを削除
-                    # st.markdown(pain_format_text) # markdown プレビュー # プレビューを削除
 
             # 企画案レビュー用タブ
             with slack_format_tab[1]: # 2つ目のタブ
@@ -1222,11 +1218,6 @@ def main():
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
                     st.code(plan_format_text, language="text") # コード表示
-                    # st.code(plan_format_text, language="markdown") # コード表示 # markdownをtextに変更
-
-                    # st.subheader("プレビュー (Slackでの表示イメージ)") # subheader プレビュー # プレビューを削除
-                    # st.markdown(plan_format_text) # markdown プレビュー # プレビューを削除
-
 
 if __name__ == "__main__":
     main()
