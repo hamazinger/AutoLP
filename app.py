@@ -399,7 +399,7 @@ class BodyGenerator:
             return ""
 
 # Slack投稿フォーマット生成機能 (ペイン案レビュー用)
-def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 現状のペイン案, 参考情報, ターゲット, pain_points):
+def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, pain_points):
     format_text = f"""【ペインポイント案の確認依頼】
 
 下記、ご確認をお願いします。
@@ -422,7 +422,7 @@ def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP�
     return format_text
 
 # Slack投稿フォーマット生成機能 (企画案レビュー用)
-def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 見出し, ターゲット, pain_points):
+def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 見出し, ターゲット, pain_points, オファー):
     format_text = f"""【タイトル・見出しの確認依頼】
 
 下記、ご確認をお願いします。
