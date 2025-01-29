@@ -443,7 +443,7 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 {pain_points}
 
 ＜オファー＞
-・脆弱性の簡易診断
+{オファー}
 
 ＜告知文＞
 ■セミナータイトル：
@@ -696,6 +696,10 @@ def init_session_state():
     # Slack投稿フォーマット用session_state (共通項目)
     if 'slack_common_参考情報' not in st.session_state:
         st.session_state.slack_common_参考情報 = ""
+
+    # 企画案レビュー用のオファー情報
+    if 'plan_オファー' not in st.session_state:
+        st.session_state.plan_オファー = ""
 
 def main():
     init_session_state()
@@ -1027,8 +1031,6 @@ def main():
                     with col2:
                         st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
                         st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="pain_初稿UP期限")
-                    
-                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="pain_参考情報")
 
                 if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"):
                     pain_format_text = generate_pain_review_format(
@@ -1036,8 +1038,7 @@ def main():
                         st.session_state.seminar_主催企業,
                         st.session_state.seminar_集客人数,
                         st.session_state.seminar_初稿UP期限,
-                        pain_points,
-                        st.session_state.slack_pain_参考情報,
+                        product_url,  
                         st.session_state.target_audience,
                         pain_points
                     )
@@ -1054,8 +1055,9 @@ def main():
                     with col2:
                         st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
                         st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
-                    
-                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_common_参考情報, key="plan_参考情報")
+
+                    # オファー入力欄を追加
+                    st.session_state.plan_オファー = st.text_area("オファー", key="plan_オファー")
 
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
                     plan_format_text = generate_plan_review_format(
@@ -1063,13 +1065,14 @@ def main():
                         st.session_state.seminar_主催企業,
                         st.session_state.seminar_集客人数,
                         st.session_state.seminar_初稿UP期限,
-                        st.session_state.slack_plan_参考情報,
+                        product_url,  # 製品URLを使用
                         st.session_state.selected_title_for_headline,
                         f"""{st.session_state.manual_headlines.background}
 {st.session_state.manual_headlines.problem}
 {st.session_state.manual_headlines.solution}""",
                         st.session_state.target_audience,
-                        pain_points
+                        pain_points,
+                        st.session_state.plan_オファー
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(plan_format_text, language="text")
