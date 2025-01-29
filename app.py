@@ -574,20 +574,20 @@ def generate_pain_review_format(企画名, 担当者名, 現状のペイン案, 
 下記、ご確認をお願いします。
 
 ＜対象セミナー＞
-・開催日：{st.session_state.get('開催日', '')}
-・主催企業：{st.session_state.get('主催企業', '')}
-・集客人数：{st.session_state.get('集客人数', '')}
-・初稿UP期限：{st.session_state.get('初稿UP期限', '')}
+・開催日：8/4
+・主催企業：サイエンスパーク
+・集客人数：30
+・初稿UP期限：7/4(火)
 
 ＜商材＞
-{st.session_state.get('商材URL', '')}
+{参考情報}
 
 ＜ターゲット＞
-・業種：{st.session_state.get('業種', '')}
-・役職・職種：{st.session_state.get('役職_職種', '')}
+・業種：日本国内のデバイスメーカー（またはデバイスをユーザー企業に販売するSIer ※ユーザー企業は対象外）
+・役職・職種：IoT機器の開発に携わる責任者
 
 ＜ペインポイント＞
-・{st.session_state.get('ペインポイント', '')}
+{現状のペイン案}
 
 ---
 **企画名:** {企画名}
@@ -596,18 +596,8 @@ def generate_pain_review_format(企画名, 担当者名, 現状のペイン案, 
 
 ---
 
-**現状のペイン案:**
-{現状のペイン案}
-
----
-
 **依頼事項:**
 {レビュー依頼事項}
-
----
-
-**参考情報:**
-{参考情報}
 
 ---
 
@@ -621,7 +611,7 @@ def generate_pain_review_format(企画名, 担当者名, 現状のペイン案, 
     return format_text
 
 # Slack投稿フォーマット生成機能 (企画案レビュー用)
-def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レビュー依頼事項, 参考情報, その他):
+def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レビュー依頼事項, 参考情報, その他, セミナータイトル, 見出し):
     """
     企画案レビュー用Slack投稿フォーマットを生成する関数
     """
@@ -632,30 +622,30 @@ def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レ
 下記、ご確認をお願いします。
 
 ＜対象セミナー＞
-・開催日：{st.session_state.get('開催日', '')}
-・主催企業：{st.session_state.get('主催企業', '')}
-・集客人数：{st.session_state.get('集客人数', '')}
-・初稿UP期限：{st.session_state.get('初稿UP期限', '')}
+・開催日：8/4
+・主催企業：サイエンスパーク
+・集客人数：30
+・初稿UP期限：7/4(火)
 
 ＜商材＞
-{st.session_state.get('商材URL', '')}
+{参考情報}
 
 ＜ターゲット＞
-・業種：{st.session_state.get('業種', '')}
-・役職・職種：{st.session_state.get('役職_職種', '')}
+・業種：日本国内のデバイスメーカー（またはデバイスをユーザー企業に販売するSIer ※ユーザー企業は対象外）
+・役職・職種：IoT機器の開発に携わる責任者
 
 ＜ペインポイント＞
-・{st.session_state.get('ペインポイント', '')}
+・IoTデバイスの脆弱性に不安がある、どう対策すればよいのかわからない
 
 ＜オファー＞
-・{st.session_state.get('オファー', '')}
+・脆弱性の簡易診断
 
 ＜告知文＞
 ■セミナータイトル：
-{st.session_state.get('セミナータイトル', '')}
+{セミナータイトル}
 
 ■見出し：
-{st.session_state.get('見出し', '')}
+{見出し}
 
 ---
 **企画名:** {企画名}
@@ -671,11 +661,6 @@ def generate_plan_review_format(企画名, 担当者名, 現状の企画案, レ
 
 **依頼事項:**
 {レビュー依頼事項}
-
----
-
-**参考情報:**
-{参考情報}
 
 ---
 
@@ -818,32 +803,9 @@ def init_session_state():
         st.session_state.slack_plan_参考情報 = ""
     if 'slack_plan_その他' not in st.session_state:
         st.session_state.slack_plan_その他 = ""
-    # 入力項目自動入力用session_state
-    if '開催日' not in st.session_state:
-        st.session_state.開催日 = "8/4"
-    if '主催企業' not in st.session_state:
-        st.session_state.主催企業 = "サイエンスパーク"
-    if '集客人数' not in st.session_state:
-        st.session_state.集客人数 = "30"
-    if '初稿UP期限' not in st.session_state:
-        st.session_state.初稿UP期限 = "7/4(火)"
-    if '商材URL' not in st.session_state:
-        st.session_state.商材URL = "https://sciencepark.co.jp/professional_service/bugdas/"
-    if '業種' not in st.session_state:
-        st.session_state.業種 = "日本国内のデバイスメーカー（またはデバイスをユーザー企業に販売するSIer ※ユーザー企業は対象外）"
-    if '役職_職種' not in st.session_state: # 変数名を修正
-        st.session_state.役職_職種 = "IoT機器の開発に携わる責任者" # 変数名を修正
-    if 'ペインポイント' not in st.session_state:
-        st.session_state.ペインポイント = "IoTデバイスの脆弱性に不安がある、どう対策すればよいのかわからない"
-    if 'オファー' not in st.session_state:
-        st.session_state.オファー = "脆弱性の簡易診断"
-    if 'セミナータイトル' not in st.session_state:
-        st.session_state.セミナータイトル = "【IoTデバイスメーカー向け】IoTデバイスのセキュリティ対策はどうすればよいのか？〜企画・設計段階からの備えによってリスクを最小化する方法〜"
-    if '見出し' not in st.session_state:
-        st.session_state.見出し = """#利用シーンが増えているIoTデバイス
-#サイバー攻撃の対象となりやすいため、セキュリティ対策が必須
-#攻撃を受けた際、責任を問われる可能性が高い開発メーカー
-#IoTデバイスの開発メーカーが取り入れるべきセキュリティ対策を解説"""
+    # Slack投稿フォーマット用session_state (共通項目)
+    if 'slack_common_参考情報' not in st.session_state:
+        st.session_state.slack_common_参考情報 = "https://sciencepark.co.jp/professional_service/bugdas/" # デフォルト値を設定
 
 
 def main():
@@ -884,8 +846,7 @@ def main():
 
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1]) # col4 を追加
     with col1:
-        product_url = st.text_input("製品URL", value=st.session_state.get('商材URL', ''), key='product_url') # value属性で自動入力
-        st.session_state['商材URL'] = product_url # Session Stateに保存
+        product_url = st.text_input("製品URL")
         if product_url:
             with st.spinner("URLからコンテンツを取得中..."):
                 extractor = URLContentExtractor()
@@ -899,17 +860,15 @@ def main():
                 else:
                     st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
     with col2:
-        pain_points = st.text_area("ペインポイント", value=st.session_state.get('ペインポイント', ''), key='pain_points') # value属性で自動入力
-        st.session_state['ペインポイント'] = pain_points # Session Stateに保存
+        pain_points = st.text_area("ペインポイント")
     with col3:
         category = st.selectbox(
             "カテゴリ",
-            options=st.session_state.available_categories,
-            index=st.session_state.available_categories.index(st.session_state.selected_category) if st.session_state.selected_category in st.session_state.available_categories else 0 # 初期値を設定
+            options=st.session_state.available_categories
         )
         st.session_state.selected_category = category
     with col4: # col4 にターゲット像入力欄を追加
-        target_audience = st.text_area("ターゲット像", value=st.session_state.target_audience, height=80, key='target_audience_input') # value属性で自動入力
+        target_audience = st.text_area("ターゲット像", height=80)
         st.session_state.target_audience = target_audience
 
     uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
@@ -1181,7 +1140,7 @@ def main():
                     st.session_state.slack_pain_担当者名 = st.text_input("担当者名", value=st.session_state.slack_pain_担当者名, key="pain_担当者名") # key をタブ内でユニークに
                     st.session_state.slack_pain_現状のペイン案 = st.text_area("現状のペイン案", value=st.session_state.slack_pain_現状のペイン案, key="pain_現状のペイン案") # key をタブ内でユニークに
                     st.session_state.slack_pain_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_pain_レビュー依頼事項, key="pain_レビュー依頼事項") # key をタブ内でユニークに
-                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_pain_参考情報, key="pain_参考情報") # key をタブ内でユニークに
+                    st.session_state.slack_pain_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_pain_参考情報, key="pain_参考情報", value=st.session_state.slack_common_参考情報) # key をタブ内でユニークに、valueに共通の参考情報を設定
                     st.session_state.slack_pain_その他 = st.text_area("その他", value=st.session_state.slack_pain_その他, key="pain_その他") # key をタブ内でユニークに
 
                 if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"): # ボタン (key をユニークに)
@@ -1195,6 +1154,7 @@ def main():
                     )
                     st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
                     st.code(pain_format_text, language="text") # コード表示
+                    # st.markdown プレビューを削除
 
             # 企画案レビュー用タブ
             with slack_format_tab[1]: # 2つ目のタブ
@@ -1204,7 +1164,7 @@ def main():
                     st.session_state.slack_plan_担当者名 = st.text_input("担当者名", value=st.session_state.slack_plan_担当者名, key="plan_担当者名") # key をタブ内でユニークに
                     st.session_state.slack_plan_現状の企画案 = st.text_area("現状の企画案", value=st.session_state.slack_plan_現状の企画案, key="plan_現状の企画案") # key をタブ内でユニークに
                     st.session_state.slack_plan_レビュー依頼事項 = st.text_area("レビュー依頼事項", value=st.session_state.slack_plan_レビュー依頼事項, key="plan_レビュー依頼事項") # key をタブ内でユニークに
-                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_plan_参考情報, key="plan_参考情報") # key をタブ内でユニークに
+                    st.session_state.slack_plan_参考情報 = st.text_area("参考情報（URLなど）", value=st.session_state.slack_plan_参考情報, key="plan_参考情報", value=st.session_state.slack_common_参考情報) # key をタブ内でユニークに、valueに共通の参考情報を設定
                     st.session_state.slack_plan_その他 = st.text_area("その他", value=st.session_state.slack_plan_その他, key="plan_その他") # key をタブ内でユニークに
 
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"): # ボタン (key をユニークに)
@@ -1214,10 +1174,16 @@ def main():
                         st.session_state.slack_plan_現状の企画案,
                         st.session_state.slack_plan_レビュー依頼事項,
                         st.session_state.slack_plan_参考情報,
-                        st.session_state.slack_plan_その他
+                        st.session_state.slack_plan_その他,
+                        st.session_state.selected_title_for_headline, # セミナータイトルを自動入力
+                        f"""{st.session_state.manual_headlines.background}
+{st.session_state.manual_headlines.problem}
+{st.session_state.manual_headlines.solution}""" # 見出しを自動入力
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)") # subheader
                     st.code(plan_format_text, language="text") # コード表示
+                    # st.markdown プレビューを削除
+
 
 if __name__ == "__main__":
     main()
