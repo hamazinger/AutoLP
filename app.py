@@ -1021,16 +1021,31 @@ def main():
 
             slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"])
 
-            with slack_format_tab[0]:
+            # with slack_format_tab[0]:
+            #     st.subheader("ペイン案レビュー Slack投稿フォーマット")
+            #     with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
+            #         col1, col2 = st.columns(2)
+            #         with col1:
+            #             st.session_state.seminar_開催日 = st.text_input("開催日", key="pain_開催日")
+            #             st.session_state.seminar_集客人数 = st.text_input("集客人数", key="pain_集客人数")
+            #         with col2:
+            #             st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
+            #             st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="pain_初稿UP期限")
+            
+            with slack_format_tab[0]:  # ペイン案レビュー用タブ
                 st.subheader("ペイン案レビュー Slack投稿フォーマット")
                 with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.session_state.seminar_開催日 = st.text_input("開催日", key="pain_開催日")
+                        # 開催日を日付選択に変更
+                        開催日 = st.date_input("開催日", key="pain_開催日")
+                        st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
                         st.session_state.seminar_集客人数 = st.text_input("集客人数", key="pain_集客人数")
                     with col2:
                         st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
-                        st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="pain_初稿UP期限")
+                        # 初稿UP期限を日付選択に変更
+                        初稿UP期限 = st.date_input("初稿UP期限", key="pain_初稿UP期限")
+                        st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
 
                 if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"):
                     pain_format_text = generate_pain_review_format(
@@ -1045,16 +1060,31 @@ def main():
                     st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(pain_format_text, language="text")
 
-            with slack_format_tab[1]:
+            # with slack_format_tab[1]:
+            #     st.subheader("企画案レビュー Slack投稿フォーマット")
+            #     with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
+            #         col1, col2 = st.columns(2)
+            #         with col1:
+            #             st.session_state.seminar_開催日 = st.text_input("開催日", key="plan_開催日")
+            #             st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
+            #         with col2:
+            #             st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
+            #             st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
+            
+            with slack_format_tab[1]:  # 企画案レビュー用タブ
                 st.subheader("企画案レビュー Slack投稿フォーマット")
                 with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.session_state.seminar_開催日 = st.text_input("開催日", key="plan_開催日")
+                        # 開催日を日付選択に変更
+                        開催日 = st.date_input("開催日", key="plan_開催日")
+                        st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
                         st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
                     with col2:
                         st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
-                        st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
+                        # 初稿UP期限を日付選択に変更
+                        初稿UP期限 = st.date_input("初稿UP期限", key="plan_初稿UP期限")
+                        st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
 
                     # オファー入力欄を追加
                     # st.session_state.plan_オファー = st.text_area("オファー", key="plan_オファー")
