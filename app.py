@@ -749,6 +749,7 @@ def main():
 
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
+        # api_key = os.environ.get("OPENAI_API_KEY") # 環境変数からの読み込み
     except KeyError:
         st.error("OpenAI APIキーが設定されていません")
         return
