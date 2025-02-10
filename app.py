@@ -1056,9 +1056,9 @@ def main():
                     st.subheader("生成された本文")
 
                     if st.session_state.refined_body_sections:
-                        sections = ["background", "problem", "solution"]
+                        sections = ["背景", "課題", "解決策"]
                         for section_type in sections:
-                            st.subheader(f"#### {section_type.capitalize()}セクション")
+                            st.subheader(f"#### {section_type.capitalize()}")
                             section_text = st.session_state.refined_body_sections[section_type]
                             st.markdown(section_text) # Markdown形式で表示
                             col1, col2 = st.columns([4, 1])
