@@ -1059,7 +1059,7 @@ def main():
                     st.subheader("生成された本文")
 
                     if st.session_state.refined_body_sections:
-                        sections = ["背景", "課題", "解決策"]
+                        sections = ["background", "problem", "solution"]
                         for section_type in sections:
                             st.subheader(f"#### {section_type.capitalize()}セクション")
                             section_text = st.session_state.refined_body_sections[section_type]
