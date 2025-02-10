@@ -302,7 +302,7 @@ class HeadlineGenerator:
         self.model = model
         self.fixed_prompt_part = """
 「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは**マークダウン形式**で出力してください。
-- 各見出しは、行頭に `#` をつけてください。
+- 各見出しは、行頭に `#` のみつけてください。**見出しテキストは `#` に続けてください。**
 - それぞれの見出しは簡潔な文章としてください。 」
 """
         self.user_editable_prompt = """
@@ -485,12 +485,15 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 
 ■見出し：
 {見出し_background}
+
 {background_text}
 
 {見出し_problem}
+
 {problem_text}
 
 {見出し_solution}
+
 {solution_text}
 """
     return format_text
@@ -1145,9 +1148,9 @@ def main():
                         st.session_state.seminar_初稿UP期限,
                         product_url,  # 製品URLを使用
                         st.session_state.selected_title_for_headline,
-                        st.session_state.manual_headlines.background, # 見出しタイトル (markdown already included)
-                        st.session_state.manual_headlines.problem,    # 見出しタイトル (markdown already included)
-                        st.session_state.manual_headlines.solution,   # 見出しタイトル (markdown already included)
+                        st.session_state.manual_headlines.background,
+                        st.session_state.manual_headlines.problem,
+                        st.session_state.manual_headlines.solution,
                         st.session_state.target_audience,
                         pain_points,
                         st.session_state.refined_body_sections.get("background", ""),
