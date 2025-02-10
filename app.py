@@ -350,7 +350,7 @@ class BodyGenerator:
         self.model = model
         self.fixed_prompt_part = """
 以下のセミナータイトルと見出しに基づいて、本文を生成してください：
-- 各見出しは【】で囲んで本文中に明示してください。
+- 各見出しは本文中に明示してください。明確に見出しであることがわかるマークダウンの書式（見出しレベル4）を用いてください。
 
 タイトル：「{title}」
 {background}
@@ -361,22 +361,21 @@ class BodyGenerator:
 以下の制約条件と入力情報を踏まえて本文を生成してください。
 
 # 制約条件
-- 各見出しセクションは300文字以上とし、3文以内でまとめてください（句読点で区切られた3文以内）。
+- 各見出しセクションは最低300文字以上とし、3文以内でまとめてください（句読点で区切られた3文以内）。
 - 全文で1000文字以内に収めてください。
 - 本文中では箇条書きを使用しないでください。
 - 3つの見出しを通して、一連のストーリーとして流れを持たせてください。
 - セミナー内容の紹介および参加を促す表現は、3つ目の見出しのセクションでのみ行ってください。
-- **3つ目の見出しのセクションは「本セミナーでは、」から始めてください。**
+- 3つ目の見出しのセクションは「本セミナーでは、」から始めてください。
 - 重要なキーワードは本文中に必ず含めてください。
 - あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
-- 各見出しは【背景】【課題】【解決策】のように【】で囲んで本文中に明示してください。
 - **ターゲット像を意識する**
 
 # ターゲット像
 {target}
 """
 
-    def generate_body(self, title: str, headlines: HeadlineSet, target: str, prompt_template: str = None) -> Optional[str]: # 返り値の型を Optional[str] に変更
+    def generate_body(self, title: str, headlines: HeadlineSet, target: str, prompt_template: str = None) -> str:
         prompt = self.fixed_prompt_part.format(
             title=title,
             background=headlines.background,
@@ -395,15 +394,10 @@ class BodyGenerator:
                 temperature=0
             )
 
-            generated_text = response.choices[0].message.content.strip()
-            if not isinstance(generated_text, str): # 型チェックを追加
-                st.error(f"APIからの応答が文字列ではありません。応答内容: {generated_text}")
-                return None # 文字列でない場合は None を返す
-            return generated_text
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            error_message = f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}"
-            st.error(error_message) # エラーメッセージをStreamlit上に表示
-            return None # エラー発生時は None を返すように変更
+            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
+            return ""
 
 # Slack投稿フォーマット生成機能 (ペイン案レビュー用)
 def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, pain_points):
@@ -689,8 +683,6 @@ def init_session_state():
         st.session_state.manual_headlines = None
     if 'target_audience' not in st.session_state:
         st.session_state.target_audience = ""
-    if 'edited_body' not in st.session_state: # 修正された本文を保持するstateを追加
-        st.session_state.edited_body = None
     
     # セミナー開催情報用のsession_state（空の初期値）
     if 'seminar_開催日' not in st.session_state:
@@ -716,7 +708,7 @@ def main():
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
-        st.error("OpenAI APIキーが設定されていません。StreamlitのsecretsにOPENAI_API_KEYを設定してください。") # エラーメッセージを修正
+        st.error("OpenAI APIキーが設定されていません")
         return
 
     st.title("セミナータイトル・告知文 ジェネレーター")
@@ -1011,38 +1003,36 @@ def main():
                 if st.button("本文を生成", key="generate_body"):
                     with st.spinner("本文を生成中..."):
                         try:
-                            generated_body = body_generator.generate_body( # 変数名変更
+                            st.session_state.generated_body = body_generator.generate_body(
                                 st.session_state.selected_title_for_headline,
                                 st.session_state.manual_headlines,
                                 st.session_state.target_audience,
                                 st.session_state.body_prompt
                             )
-                            st.session_state.generated_body = generated_body # session_stateに格納
-                            st.session_state.edited_body = generated_body # 修正前の本文をedited_bodyにも格納
                         except Exception as e:
                             st.error(f"エラーが発生しました: {e}")
-                            st.session_state.generated_body = None # エラー発生時は generated_body を None に設定 (追記)
 
-                if st.session_state.generated_body: # generated_body が None でないことを確認 (修正)
+                if st.session_state.generated_body:
                     st.subheader("生成された本文")
-                    # デバッグ: generated_body の型と値を出力 (追記)
-                    st.write("デバッグ: generated_body の型", type(st.session_state.generated_body))
-                    st.write("デバッグ: generated_body の値", st.session_state.generated_body)
-                    st.session_state.edited_body = st.text_area("本文修正", value=st.session_state.generated_body, height=400, key="edited_body")
-
-                    if st.button("本文を確定", key="fix_body"): # 修正確定ボタン
-                        st.success("本文を確定しました！") # 確定メッセージ
-                        # 確定後の処理 (例: st.session_state.edited_body を使用して後続処理)
-                        # 必要に応じて、ここに本文確定後の処理を記述してください
-                else: # generated_body が None の場合 (エラー発生時) の処理 (追記)
-                    st.warning("本文生成に失敗しました。再度本文生成ボタンを押してください。")
+                    st.write(st.session_state.generated_body)
 
         # Step 5: Slack投稿フォーマット生成
-        if st.session_state.edited_body: # 修正後の本文(edited_body)で条件分岐
+        if st.session_state.generated_body:
             st.header("Step 5: Slack投稿フォーマット生成")
 
             slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"])
 
+            # with slack_format_tab[0]:
+            #     st.subheader("ペイン案レビュー Slack投稿フォーマット")
+            #     with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
+            #         col1, col2 = st.columns(2)
+            #         with col1:
+            #             st.session_state.seminar_開催日 = st.text_input("開催日", key="pain_開催日")
+            #             st.session_state.seminar_集客人数 = st.text_input("集客人数", key="pain_集客人数")
+            #         with col2:
+            #             st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
+            #             st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="pain_初稿UP期限")
+            
             with slack_format_tab[0]:  # ペイン案レビュー用タブ
                 st.subheader("ペイン案レビュー Slack投稿フォーマット")
                 with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
@@ -1071,6 +1061,17 @@ def main():
                     st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(pain_format_text, language="text")
 
+            # with slack_format_tab[1]:
+            #     st.subheader("企画案レビュー Slack投稿フォーマット")
+            #     with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
+            #         col1, col2 = st.columns(2)
+            #         with col1:
+            #             st.session_state.seminar_開催日 = st.text_input("開催日", key="plan_開催日")
+            #             st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
+            #         with col2:
+            #             st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
+            #             st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
+            
             with slack_format_tab[1]:  # 企画案レビュー用タブ
                 st.subheader("企画案レビュー Slack投稿フォーマット")
                 with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
@@ -1086,6 +1087,9 @@ def main():
                         初稿UP期限 = st.date_input("初稿UP期限", key="plan_初稿UP期限")
                         st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
 
+                    # オファー入力欄を追加
+                    # st.session_state.plan_オファー = st.text_area("オファー", key="plan_オファー")
+
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
                     plan_format_text = generate_plan_review_format(
                         st.session_state.seminar_開催日,
@@ -1099,6 +1103,7 @@ def main():
 {st.session_state.manual_headlines.solution}""",
                         st.session_state.target_audience,
                         pain_points,
+                        # st.session_state.plan_オファー
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(plan_format_text, language="text")
