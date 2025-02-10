@@ -484,17 +484,9 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 {セミナータイトル}
 
 ■見出し：
-{見出し_background}
-
-{background_text}
-
-{見出し_problem}
-
-{problem_text}
-
-{見出し_solution}
-
-{solution_text}
+# {background_text}
+# {problem_text}
+# {solution_text}
 """
     return format_text
 
