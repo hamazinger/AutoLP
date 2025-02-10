@@ -357,12 +357,15 @@ class BodyGenerator:
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.fixed_prompt_part = """
-以下のセミナータイトルと見出しに基づいて、本文を生成してください：
-- 各見出しは本文中に明示してください。明確に見出しであることがわかるマークダウンの書式（見出しレベル4）を用いてください。
+以下のセミナータイトルと見出しに基づいて、本文を生成してください。
+各見出しは、対応するセクションの**先頭行**に**マークダウンの見出し形式（#### 見出し）**で出力してください。
 
 タイトル：「{title}」
+
 {background}
+
 {problem}
+
 {solution}
 """
         self.user_editable_prompt = """
