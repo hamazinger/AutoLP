@@ -396,8 +396,9 @@ class BodyGenerator:
 
             return response.choices[0].message.content.strip()
         except Exception as e:
-            st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
-            return ""
+            error_message = f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}"
+            st.error(error_message) # エラーメッセージをStreamlit上に表示
+            return None # エラー発生時は None を返すように変更
 
 # Slack投稿フォーマット生成機能 (ペイン案レビュー用)
 def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, pain_points):
@@ -1015,8 +1016,9 @@ def main():
                             st.session_state.edited_body = generated_body # 修正前の本文をedited_bodyにも格納
                         except Exception as e:
                             st.error(f"エラーが発生しました: {e}")
+                            st.session_state.generated_body = None # エラー発生時は generated_body を None に設定 (追記)
 
-                if st.session_state.generated_body:
+                if st.session_state.generated_body: # generated_body が None でないことを確認 (修正)
                     st.subheader("生成された本文")
                     # 修正用のテキストエリアを表示、初期値は生成された本文、キーをedited_bodyで指定
                     st.session_state.edited_body = st.text_area("本文修正", value=st.session_state.generated_body, height=400, key="edited_body")
@@ -1025,6 +1027,8 @@ def main():
                         st.success("本文を確定しました！") # 確定メッセージ
                         # 確定後の処理 (例: st.session_state.edited_body を使用して後続処理)
                         # 必要に応じて、ここに本文確定後の処理を記述してください
+                else: # generated_body が None の場合 (エラー発生時) の処理 (追記)
+                    st.warning("本文生成に失敗しました。再度本文生成ボタンを押してください。")
 
         # Step 5: Slack投稿フォーマット生成
         if st.session_state.edited_body: # 修正後の本文(edited_body)で条件分岐
