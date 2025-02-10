@@ -1054,13 +1054,14 @@ def main():
 
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
+                    st.write(st.session_state.generated_body) # プレーンテキストで表示
 
                     if st.session_state.refined_body_sections:
-                        sections = ["背景", "課題", "解決策"]
+                        sections = ["background", "problem", "solution"]
                         for section_type in sections:
-                            st.subheader(f"#### {section_type.capitalize()}")
+                            st.subheader(f"#### {section_type.capitalize()}セクション")
                             section_text = st.session_state.refined_body_sections[section_type]
-                            st.markdown(section_text) # Markdown形式で表示
+                            st.write(section_text) # プレーンテキストで表示
                             col1, col2 = st.columns([4, 1])
                             with col1:
                                 refine_body_prompt = st.text_area(f"修正指示 ({section_type})", key=f"refine_body_prompt_{section_type}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
@@ -1071,9 +1072,6 @@ def main():
                                         if refined_section:
                                             st.session_state.refined_body_sections[section_type] = refined_section.refined_text
                                             st.rerun() # UIを再描画して修正を反映
-
-                    else: # refined_body_sections がない場合（エラー発生時など）はプレーンテキストで全体を表示
-                        st.write(st.session_state.generated_body)
 
 
         # Step 5: Slack投稿フォーマット生成
