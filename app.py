@@ -151,6 +151,14 @@ class RefinedTitles(BaseModel):
             "sub_title": self.sub_title,
         }
 
+class BodySection(BaseModel):
+    refined_text: str = Field(description="修正後のセクションテキスト")
+
+    def model_dump(self) -> Dict[str, str]:
+        return {
+            "refined_text": self.refined_text,
+        }
+
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.client = OpenAI(api_key=api_key)
@@ -217,20 +225,20 @@ class TitleGenerator:
     """
                 else:
                     st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
-    
+
             if file_content:
                 additional_context += f"""
     アップロードされたファイルの内容:
     {file_content}
     """
-    
+
             prompt = f"""
     # 入力情報
     {context}
     """ + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
-    
+
             result_text = None
-    
+
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -240,9 +248,9 @@ class TitleGenerator:
                     ],
                     temperature=0
                 )
-    
+
                 result_text = response.choices[0].message.content.strip()
-    
+
                 try:
                     result = json.loads(result_text)
                 except json.JSONDecodeError:
@@ -253,16 +261,16 @@ class TitleGenerator:
                         result = json.loads(json_text)
                     else:
                         raise ValueError("タイトルを抽出できませんでした")
-    
+
                 if not isinstance(result, dict) or "titles" not in result:
                     raise ValueError("不正な応答形式です")
-    
+
                 titles = result["titles"]
                 if not isinstance(titles, list) or not titles:
                     raise ValueError("タイトルが見つかりません")
-    
+
                 return titles[:3]
-    
+
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
                 if result_text:
@@ -315,7 +323,7 @@ class HeadlineGenerator:
 
     def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
             prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(target=target) + self.fixed_output_instructions
-    
+
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -326,9 +334,9 @@ class HeadlineGenerator:
                     ],
                     temperature=0
                 )
-    
+
                 result_text = response.choices[0].message.content.strip()
-    
+
                 try:
                     result = json.loads(result_text)
                 except json.JSONDecodeError:
@@ -337,9 +345,9 @@ class HeadlineGenerator:
                     if start_index != -1 and end_index > start_index:
                         json_text = result_text[start_index:end_index]
                         result = json.loads(json_text)
-    
+
                 return HeadlineSet.from_dict(result)
-    
+
             except Exception as e:
                 st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
                 return HeadlineSet("", "", "")
@@ -354,7 +362,7 @@ class BodyGenerator:
 
 タイトル：「{title}」
 {background}
-{problem}」
+{problem}
 {solution}
 """
         self.user_editable_prompt = """
@@ -398,6 +406,26 @@ class BodyGenerator:
         except Exception as e:
             st.error(f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}")
             return ""
+
+    def refine_body_section(self, section_text: str, prompt: str, section_type: str) -> Optional[Dict[str, str]]:
+        parser = PydanticOutputParser(pydantic_object=BodySection)
+
+        prompt_template = PromptTemplate(
+            template=f"以下の{section_type}セクションを修正してください。\n{{format_instructions}}\n{section_type}セクション:\n{{section_text}}\n要望: {{prompt}}",
+            input_variables=["section_text", "prompt"],
+            partial_variables={"format_instructions": parser.get_format_instructions()}
+        )
+
+        llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=self.client.api_key)
+        chain = prompt_template | llm | parser
+
+        try:
+            output = chain.invoke({"section_text": section_text, "prompt": prompt})
+            return output
+        except Exception as e:
+            st.error(f"Langchainによる本文セクション修正でエラーが発生しました: {e}")
+            return None
+
 
 # Slack投稿フォーマット生成機能 (ペイン案レビュー用)
 def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, pain_points):
@@ -683,7 +711,9 @@ def init_session_state():
         st.session_state.manual_headlines = None
     if 'target_audience' not in st.session_state:
         st.session_state.target_audience = ""
-    
+    if 'refined_body_sections' not in st.session_state: # 修正された本文セクションを保存するsession_state
+        st.session_state.refined_body_sections = {}
+
     # セミナー開催情報用のsession_state（空の初期値）
     if 'seminar_開催日' not in st.session_state:
         st.session_state.seminar_開催日 = ""
@@ -693,14 +723,11 @@ def init_session_state():
         st.session_state.seminar_集客人数 = ""
     if 'seminar_初稿UP期限' not in st.session_state:
         st.session_state.seminar_初稿UP期限 = ""
-    
+
     # Slack投稿フォーマット用session_state (共通項目)
     if 'slack_common_参考情報' not in st.session_state:
         st.session_state.slack_common_参考情報 = ""
 
-    # # 企画案レビュー用のオファー情報
-    # if 'plan_オファー' not in st.session_state:
-    #     st.session_state['plan_オファー'] = "" 
 
 def main():
     init_session_state()
@@ -1003,18 +1030,51 @@ def main():
                 if st.button("本文を生成", key="generate_body"):
                     with st.spinner("本文を生成中..."):
                         try:
-                            st.session_state.generated_body = body_generator.generate_body(
+                            generated_body = body_generator.generate_body(
                                 st.session_state.selected_title_for_headline,
                                 st.session_state.manual_headlines,
                                 st.session_state.target_audience,
                                 st.session_state.body_prompt
                             )
+                            st.session_state.generated_body = generated_body
+                            # 生成された本文をセクションごとに分割してsession_stateに保存
+                            body_sections = generated_body.split("#### ")
+                            if len(body_sections) == 4: # 見出しが3つ + 冒頭の不要な空要素
+                                st.session_state.refined_body_sections = {
+                                    "background": body_sections[1],
+                                    "problem": body_sections[2],
+                                    "solution": body_sections[3]
+                                }
+                            else:
+                                st.error("本文セクションの分割に失敗しました。生成された本文の形式が想定外です。")
+                                st.session_state.refined_body_sections = {} # エラー時は空で初期化
+
                         except Exception as e:
                             st.error(f"エラーが発生しました: {e}")
 
                 if st.session_state.generated_body:
                     st.subheader("生成された本文")
-                    st.write(st.session_state.generated_body)
+
+                    if st.session_state.refined_body_sections:
+                        sections = ["background", "problem", "solution"]
+                        for section_type in sections:
+                            st.subheader(f"#### {section_type.capitalize()}セクション")
+                            section_text = st.session_state.refined_body_sections[section_type]
+                            st.markdown(section_text) # Markdown形式で表示
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                refine_body_prompt = st.text_area(f"修正指示 ({section_type})", key=f"refine_body_prompt_{section_type}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
+                            with col2:
+                                if st.button("修正", key=f"refine_body_button_{section_type}"):
+                                    with st.spinner(f"{section_type.capitalize()}セクション修正中..."):
+                                        refined_section = body_generator.refine_body_section(section_text, refine_body_prompt, section_type.capitalize())
+                                        if refined_section:
+                                            st.session_state.refined_body_sections[section_type] = refined_section.refined_text
+                                            st.rerun() # UIを再描画して修正を反映
+
+                    else: # refined_body_sections がない場合（エラー発生時など）はプレーンテキストで全体を表示
+                        st.write(st.session_state.generated_body)
+
 
         # Step 5: Slack投稿フォーマット生成
         if st.session_state.generated_body:
@@ -1022,18 +1082,7 @@ def main():
 
             slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"])
 
-            # with slack_format_tab[0]:
-            #     st.subheader("ペイン案レビュー Slack投稿フォーマット")
-            #     with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
-            #         col1, col2 = st.columns(2)
-            #         with col1:
-            #             st.session_state.seminar_開催日 = st.text_input("開催日", key="pain_開催日")
-            #             st.session_state.seminar_集客人数 = st.text_input("集客人数", key="pain_集客人数")
-            #         with col2:
-            #             st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
-            #             st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="pain_初稿UP期限")
-            
-            with slack_format_tab[0]:  # ペイン案レビュー用タブ
+            with slack_format_tab[0]:
                 st.subheader("ペイン案レビュー Slack投稿フォーマット")
                 with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
                     col1, col2 = st.columns(2)
@@ -1054,25 +1103,14 @@ def main():
                         st.session_state.seminar_主催企業,
                         st.session_state.seminar_集客人数,
                         st.session_state.seminar_初稿UP期限,
-                        product_url,  
+                        product_url,
                         st.session_state.target_audience,
                         pain_points
                     )
                     st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(pain_format_text, language="text")
 
-            # with slack_format_tab[1]:
-            #     st.subheader("企画案レビュー Slack投稿フォーマット")
-            #     with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
-            #         col1, col2 = st.columns(2)
-            #         with col1:
-            #             st.session_state.seminar_開催日 = st.text_input("開催日", key="plan_開催日")
-            #             st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
-            #         with col2:
-            #             st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
-            #             st.session_state.seminar_初稿UP期限 = st.text_input("初稿UP期限", key="plan_初稿UP期限")
-            
-            with slack_format_tab[1]:  # 企画案レビュー用タブ
+            with slack_format_tab[1]:
                 st.subheader("企画案レビュー Slack投稿フォーマット")
                 with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
                     col1, col2 = st.columns(2)
@@ -1087,9 +1125,6 @@ def main():
                         初稿UP期限 = st.date_input("初稿UP期限", key="plan_初稿UP期限")
                         st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
 
-                    # オファー入力欄を追加
-                    # st.session_state.plan_オファー = st.text_area("オファー", key="plan_オファー")
-
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
                     plan_format_text = generate_plan_review_format(
                         st.session_state.seminar_開催日,
@@ -1103,7 +1138,6 @@ def main():
 {st.session_state.manual_headlines.solution}""",
                         st.session_state.target_audience,
                         pain_points,
-                        # st.session_state.plan_オファー
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(plan_format_text, language="text")
