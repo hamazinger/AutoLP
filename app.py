@@ -375,7 +375,7 @@ class BodyGenerator:
 {target}
 """
 
-    def generate_body(self, title: str, headlines: HeadlineSet, target: str, prompt_template: str = None) -> str:
+    def generate_body(self, title: str, headlines: HeadlineSet, target: str, prompt_template: str = None) -> Optional[str]: # 返り値の型を Optional[str] に変更
         prompt = self.fixed_prompt_part.format(
             title=title,
             background=headlines.background,
@@ -394,7 +394,11 @@ class BodyGenerator:
                 temperature=0
             )
 
-            return response.choices[0].message.content.strip()
+            generated_text = response.choices[0].message.content.strip()
+            if not isinstance(generated_text, str): # 型チェックを追加
+                st.error(f"APIからの応答が文字列ではありません。応答内容: {generated_text}")
+                return None # 文字列でない場合は None を返す
+            return generated_text
         except Exception as e:
             error_message = f"OpenAI APIの呼び出しでエラーが発生しました: {str(e)}"
             st.error(error_message) # エラーメッセージをStreamlit上に表示
@@ -1020,7 +1024,9 @@ def main():
 
                 if st.session_state.generated_body: # generated_body が None でないことを確認 (修正)
                     st.subheader("生成された本文")
-                    # 修正用のテキストエリアを表示、初期値は生成された本文、キーをedited_bodyで指定
+                    # デバッグ: generated_body の型と値を出力 (追記)
+                    st.write("デバッグ: generated_body の型", type(st.session_state.generated_body))
+                    st.write("デバッグ: generated_body の値", st.session_state.generated_body)
                     st.session_state.edited_body = st.text_area("本文修正", value=st.session_state.generated_body, height=400, key="edited_body")
 
                     if st.button("本文を確定", key="fix_body"): # 修正確定ボタン
