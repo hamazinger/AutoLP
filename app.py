@@ -301,12 +301,14 @@ class HeadlineGenerator:
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.fixed_prompt_part = """
-「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。 」
+「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは**マークダウン形式**で出力してください。
+- 各見出しは、行頭に `#` をつけてください。
+- それぞれの見出しは簡潔な文章としてください。 」
 """
         self.user_editable_prompt = """
-見出し1：このセミナーを開催する、社会や企業の背景
-見出し2：このセミナーで訴求したい、課題、問題、悩み、不安
-見出し3：上記課題の解決の方向性
+見出し1：# このセミナーを開催する、社会や企業の背景
+見出し2：# このセミナーで訴求したい、課題、問題、悩み、不安
+見出し3：# 上記課題の解決の方向性
 - **ターゲット像を意識する**
 
 # ターゲット像
@@ -482,13 +484,13 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 {セミナータイトル}
 
 ■見出し：
-# {見出し_background}
+{見出し_background}
 {background_text}
 
-# {見出し_problem}
+{見出し_problem}
 {problem_text}
 
-# {見出し_solution}
+{見出し_solution}
 {solution_text}
 """
     return format_text
@@ -1143,14 +1145,14 @@ def main():
                         st.session_state.seminar_初稿UP期限,
                         product_url,  # 製品URLを使用
                         st.session_state.selected_title_for_headline,
-                        st.session_state.manual_headlines.background, # 見出しタイトル
-                        st.session_state.manual_headlines.problem,    # 見出しタイトル
-                        st.session_state.manual_headlines.solution,   # 見出しタイトル
+                        st.session_state.manual_headlines.background, # 見出しタイトル (markdown already included)
+                        st.session_state.manual_headlines.problem,    # 見出しタイトル (markdown already included)
+                        st.session_state.manual_headlines.solution,   # 見出しタイトル (markdown already included)
                         st.session_state.target_audience,
                         pain_points,
-                        st.session_state.refined_body_sections.get("background", ""), # 本文セクション
-                        st.session_state.refined_body_sections.get("problem", ""),    # 本文セクション
-                        st.session_state.refined_body_sections.get("solution", "")   # 本文セクション
+                        st.session_state.refined_body_sections.get("background", ""),
+                        st.session_state.refined_body_sections.get("problem", ""),
+                        st.session_state.refined_body_sections.get("solution", "")
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(plan_format_text, language="text")
