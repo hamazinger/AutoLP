@@ -217,6 +217,8 @@ class PainPointGenerator:
             )
 
             result_text = response.choices[0].message.content.strip()
+            st.error(f"AIレスポンス(pain_points): {result_text}") # ★デバッグ用：AIレスポンスをエラー表示
+
             try:
                 result_json = json.loads(result_text)
                 if not isinstance(result_json, dict) or "pain_points" not in result_json:
@@ -225,7 +227,7 @@ class PainPointGenerator:
                 if not isinstance(pain_points, list):
                     raise ValueError("pain_points がリスト形式ではありません")
                 return pain_points[:3]  # 最大3つまで返す
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as ve:
                 start_index = result_text.find('{')
                 end_index = result_text.rfind('}') + 1
                 if start_index != -1 and end_index > start_index:
