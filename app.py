@@ -462,7 +462,10 @@ def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP�
     return format_text
 
 # Slack投稿フォーマット生成機能 (企画案レビュー用)
-def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 見出し_background, 見出し_problem, 見出し_solution, ターゲット, pain_points, background_text, problem_text, solution_text):
+def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 
+                               見出し_background, 見出し_problem, 見出し_solution, 
+                               ターゲット, pain_points, 
+                               background_text, problem_text, solution_text):
     format_text = f"""【タイトル・見出しの確認依頼】
 
 下記、ご確認をお願いします。
@@ -491,8 +494,13 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 
 ■見出し：
 # {見出し_background}
+{background_text}
+
 # {見出し_problem}
+{problem_text}
+
 # {見出し_solution}
+{solution_text}
 """
     return format_text
 
@@ -1244,9 +1252,9 @@ def main():
                         st.session_state.manual_headlines.solution,
                         st.session_state.target_audience,
                         pain_points,
-                        st.session_state.manual_headlines.background,  # 見出しの本文を使用
-                        st.session_state.manual_headlines.problem,
-                        st.session_state.manual_headlines.solution
+                        st.session_state.refined_body_sections.get("background", ""),
+                        st.session_state.refined_body_sections.get("problem", ""),
+                        st.session_state.refined_body_sections.get("solution", "")
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(plan_format_text, language="text")
