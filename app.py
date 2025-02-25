@@ -50,12 +50,12 @@ class WebContent:
 
 @dataclass
 class PainPoint:
-    title: str
+    headline: str  # タイトルを見出しに変更
     description: str
     selected: bool = False
     
     def to_text(self) -> str:
-        return f"{self.title}：{self.description}"
+        return f"{self.headline}：{self.description}"
 
 @dataclass
 class TitleAnalysis:
@@ -169,12 +169,12 @@ class BodySection(BaseModel):
         }
 
 class RefinedPainPoint(BaseModel):
-    title: str = Field(description="修正後のペインポイントタイトル")
+    headline: str = Field(description="修正後のペインポイント見出し")
     description: str = Field(description="修正後のペインポイント詳細")
 
     def model_dump(self) -> Dict[str, str]:
         return {
-            "title": self.title,
+            "headline": self.headline,
             "description": self.description,
         }
 
@@ -205,15 +205,15 @@ class PainPointGenerator:
 {
     "pain_points": [
         {
-            "title": "ペインポイント1のタイトル（15-20文字）",
+            "headline": "ペインポイント1の見出し（15-20文字）",
             "description": "ペインポイント1の詳細な説明（100-150文字）"
         },
         {
-            "title": "ペインポイント2のタイトル（15-20文字）",
+            "headline": "ペインポイント2の見出し（15-20文字）",
             "description": "ペインポイント2の詳細な説明（100-150文字）"
         },
         {
-            "title": "ペインポイント3のタイトル（15-20文字）",
+            "headline": "ペインポイント3の見出し（15-20文字）",
             "description": "ペインポイント3の詳細な説明（100-150文字）"
         }
     ]
@@ -277,7 +277,7 @@ class PainPointGenerator:
             if not isinstance(pain_points, list) or not pain_points:
                 raise ValueError("ペインポイントが見つかりません")
 
-            return [PainPoint(title=p.get("title", ""), description=p.get("description", "")) for p in pain_points[:3]]
+            return [PainPoint(headline=p.get("headline", ""), description=p.get("description", "")) for p in pain_points[:3]]
 
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
@@ -285,12 +285,12 @@ class PainPointGenerator:
                 st.error(f"AIからの応答:\n{result_text}")
             return []
 
-    def refine_pain_point(self, title: str, description: str, prompt: str) -> Optional[Dict[str, str]]:
+    def refine_pain_point(self, headline: str, description: str, prompt: str) -> Optional[Dict[str, str]]:
         parser = PydanticOutputParser(pydantic_object=RefinedPainPoint)
 
         prompt_template = PromptTemplate(
-            template="以下のペインポイントを修正してください。\n{format_instructions}\nタイトル: {title}\n詳細: {description}\n要望: {prompt}",
-            input_variables=["title", "description", "prompt"],
+            template="以下のペインポイントを修正してください。\n{format_instructions}\n見出し: {headline}\n詳細: {description}\n要望: {prompt}",
+            input_variables=["headline", "description", "prompt"],
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
 
@@ -298,7 +298,7 @@ class PainPointGenerator:
         chain = prompt_template | llm | parser
 
         try:
-            output = chain.invoke({"title": title, "description": description, "prompt": prompt})
+            output = chain.invoke({"headline": headline, "description": description, "prompt": prompt})
             return output
         except Exception as e:
             st.error(f"Langchainによるペインポイント修正でエラーが発生しました: {e}")
@@ -326,7 +326,7 @@ class TitleGenerator:
 {target}
 
 # 選択されたペインポイント
-【タイトル】{pain_point_title}
+【見出し】{pain_point_headline}
 【詳細】{pain_point_description}
 
 # Steps
@@ -391,7 +391,7 @@ class TitleGenerator:
 {context}
 """ + (prompt_template or self.user_editable_prompt).format(
                 target=target, 
-                pain_point_title=pain_point.title,
+                pain_point_headline=pain_point.headline,
                 pain_point_description=pain_point.description
             ) + additional_context + self.fixed_output_instructions
 
@@ -473,7 +473,7 @@ class HeadlineGenerator:
 {target}
 
 # 選択されたペインポイント
-【タイトル】{pain_point_title}
+【見出し】{pain_point_headline}
 【詳細】{pain_point_description}
 """
         self.fixed_output_instructions = """
@@ -488,7 +488,7 @@ class HeadlineGenerator:
     def generate_headlines(self, title: str, target: str, pain_point: PainPoint, prompt_template: str = None) -> HeadlineSet:
             prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(
                 target=target, 
-                pain_point_title=pain_point.title,
+                pain_point_headline=pain_point.headline,
                 pain_point_description=pain_point.description
             ) + self.fixed_output_instructions
 
@@ -557,7 +557,7 @@ class BodyGenerator:
 {target}
 
 # 選択されたペインポイント
-【タイトル】{pain_point_title}
+【見出し】{pain_point_headline}
 【詳細】{pain_point_description}
 """
 
@@ -569,7 +569,7 @@ class BodyGenerator:
             solution=headlines.solution
         ) + (prompt_template or self.user_editable_prompt).format(
             target=target, 
-            pain_point_title=pain_point.title,
+            pain_point_headline=pain_point.headline,
             pain_point_description=pain_point.description
         )
 
@@ -609,9 +609,9 @@ class BodyGenerator:
             return None
 
 
-# Slack投稿フォーマット生成機能 (ペイン案レビュー用)
-def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, 強み, pain_point):
-    format_text = f"""【ペインポイント案の確認依頼】
+# 中間レビュー用フォーマット生成 (ペインポイントとタイトルを両方含む)
+def generate_mid_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, 強み, pain_point, seminar_title):
+    format_text = f"""【ペインポイント・タイトル案の確認依頼】
 
 下記、ご確認をお願いします。
 
@@ -631,12 +631,15 @@ def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 {強み}
 
 ＜ペインポイント＞
-【タイトル】{pain_point.title}
+【見出し】{pain_point.headline}
 【詳細】{pain_point.description}
+
+＜セミナータイトル案＞
+{seminar_title}
 """
     return format_text
 
-# Slack投稿フォーマット生成機能 (企画案レビュー用)
+# 企画案レビュー用フォーマット生成機能
 def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 
                                見出し_background, 見出し_problem, 見出し_solution, 
                                ターゲット, pain_point, 強み,
@@ -661,7 +664,7 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 {強み}
 
 ＜ペインポイント＞
-【タイトル】{pain_point.title}
+【見出し】{pain_point.headline}
 【詳細】{pain_point.description}
 
 ＜オファー＞
@@ -691,7 +694,6 @@ class SeminarTitleEvaluator:
     def _initialize_analytics(self):
         high_performing = self.df[self.df['Acquisition_Speed'] >= 2.5]
         self.attractive_words = self._extract_effective_keywords(high_performing)
-        self.category_speeds = self.df.groupby('Major_Category')['Acquisition_Speed'].mean()
         self.problem_indicators = [
             '課題', '問題', 'による', 'ための', '向上', '改善', '解決', '対策',
             'どうする', 'なぜ', 'どう', '方法', '実現', 'ポイント', '実践',
@@ -738,17 +740,9 @@ class SeminarTitleEvaluator:
 
         return "。".join(comments)
 
-    def evaluate_title(self, title: str, category: str = None) -> TitleAnalysis:
+    def evaluate_title(self, title: str) -> TitleAnalysis:
         base_score = self._calculate_base_score(title)
-
-        category_score = 0.0
-        if category and category in self.category_speeds:
-            category_avg = self.category_speeds[category]
-            category_score = 0.3 if category_avg > 2.5 else (
-                0.2 if category_avg > 2.0 else 0.1
-            )
-
-        final_score = min(max(base_score + category_score, 1.0), 3.0)
+        final_score = min(max(base_score, 1.0), 3.0)
 
         matching_words = [word for word in self.attractive_words if word in title]
         has_problem = any(indicator in title for indicator in self.problem_indicators)
@@ -758,7 +752,6 @@ class SeminarTitleEvaluator:
             "title_length": f"タイトルの長さ: {len(title)}文字 （{'適切' if len(title) <= 40 else '長い'}）",
             "problem_indication": f"問題提起: {'あり' if has_problem else 'なし'}",
             "exclamation": f"感嘆符: {'あり（減点）' if '!' in title or '！' in title else 'なし'}",
-            "category": f"カテゴリ評価: {category if category else '未指定'} (スコア: {category_score:.1f})",
             "predicted_speed": f"予測される集客速度: {final_score:.1f}"
         }
 
@@ -780,7 +773,7 @@ class SeminarTitleEvaluator:
             has_specific_problem=has_problem,
             has_exclamation='!' in title or '！' in title,
             title_length=len(title),
-            category_score=category_score,
+            category_score=0.0,  # カテゴリ評価を使用しないため0.0を固定
             reasoning=reasoning,
             evaluation_comment=evaluation_comment
         )
@@ -846,21 +839,13 @@ def load_seminar_data():
 
     try:
         df = client.query(query).to_dataframe()
-        if 'Major_Category' not in df.columns:
-            st.error("Major_Categoryカラムが見つかりません")
-            st.write("利用可能なカラム:", df.columns.tolist())
-            return None
-
         return df
     except Exception as e:
         st.error(f"データの読み込みでエラーが発生しました: {str(e)}")
         return None
 
 def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
-    analysis = evaluator.evaluate_title(
-        title,
-        st.session_state.selected_category
-    )
+    analysis = evaluator.evaluate_title(title)
 
     st.write("### 評価詳細")
     st.info(f"**評価コメント:** {analysis.evaluation_comment}")
@@ -885,8 +870,6 @@ def init_session_state():
         st.session_state.selected_title = None
     if 'selected_title_for_headline' not in st.session_state:
         st.session_state.selected_title_for_headline = None
-    if 'selected_category' not in st.session_state:
-        st.session_state.selected_category = None
     if 'headlines' not in st.session_state:
         st.session_state.headlines = None
     if 'title_cache' not in st.session_state:
@@ -895,8 +878,6 @@ def init_session_state():
         st.session_state.seminar_data = None
     if 'evaluator' not in st.session_state:
         st.session_state.evaluator = None
-    if 'available_categories' not in st.session_state:
-        st.session_state.available_categories = []
     if 'extracted_content' not in st.session_state:
         st.session_state.extracted_content = {}
     if 'title_prompt' not in st.session_state:
@@ -961,15 +942,9 @@ def main():
         with st.spinner("セミナーデータを読み込んでいます..."):
             df = load_seminar_data()
             if df is not None:
-                try:
-                    categories = df['Major_Category'].dropna().unique().tolist()
-                    st.session_state.available_categories = sorted(categories)
-                    st.session_state.seminar_data = df
-                    st.session_state.evaluator = SeminarTitleEvaluator(df)
-                    st.success("データを正常に読み込みました！")
-                except Exception as e:
-                    st.error(f"カテゴリデータの処理中にエラーが発生しました: {e}")
-                    return
+                st.session_state.seminar_data = df
+                st.session_state.evaluator = SeminarTitleEvaluator(df)
+                st.success("データを正常に読み込みました！")
             else:
                 st.error("データの読み込みに失敗しました。")
                 return
@@ -1009,15 +984,8 @@ def main():
                         st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
     
     with col2:
-        # 右側のカラム - 強み・差別化ポイント、カテゴリ、ターゲット像
+        # 右側のカラム - 強み・差別化ポイント、ターゲット像
         st.session_state.strengths = st.text_area("強み・差別化ポイント", value=st.session_state.strengths, height=100)
-        
-        category = st.selectbox(
-            "カテゴリ",
-            options=st.session_state.available_categories
-        )
-        st.session_state.selected_category = category
-        
         target_audience = st.text_area("ターゲット像", height=100)
         st.session_state.target_audience = target_audience
 
@@ -1110,20 +1078,20 @@ def main():
                     st.session_state.selected_pain_point_index = i
             
             with col2:
-                st.write(f"**タイトル:** {pain_point.title}")
+                st.write(f"**見出し:** {pain_point.headline}")
                 st.write(f"**詳細:** {pain_point.description}")
             
             with col3:
                 修正プロンプト = st.text_area("修正依頼", key=f"refine_pain_point_{i}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
                 if st.button("修正", key=f"refine_pain_point_button_{i}"):
                     with st.spinner("ペインポイント修正中..."):
-                        refined_pain_point = pain_point_generator.refine_pain_point(pain_point.title, pain_point.description, 修正プロンプト)
+                        refined_pain_point = pain_point_generator.refine_pain_point(pain_point.headline, pain_point.description, 修正プロンプト)
                         if refined_pain_point:
-                            refined_title = refined_pain_point.title
+                            refined_headline = refined_pain_point.headline
                             refined_description = refined_pain_point.description
                             
                             st.session_state.generated_pain_points[i] = PainPoint(
-                                title=refined_title,
+                                headline=refined_headline,
                                 description=refined_description
                             )
                             st.rerun()
@@ -1133,50 +1101,15 @@ def main():
         col1, col2 = st.columns([4, 1])
         
         with col1:
-            manual_title = st.text_input("ペインポイントタイトル", key="manual_pain_point_title")
+            manual_headline = st.text_input("ペインポイント見出し", key="manual_pain_point_headline")
             manual_description = st.text_area("ペインポイント詳細", key="manual_pain_point_description")
         
         with col2:
-            if st.button("追加", key="add_manual_pain_point") and manual_title and manual_description:
-                new_pain_point = PainPoint(title=manual_title, description=manual_description)
+            if st.button("追加", key="add_manual_pain_point") and manual_headline and manual_description:
+                new_pain_point = PainPoint(headline=manual_headline, description=manual_description)
                 st.session_state.generated_pain_points.append(new_pain_point)
                 st.session_state.selected_pain_point_index = len(st.session_state.generated_pain_points) - 1
                 st.rerun()
-
-        # ペインポイントレビュー用Slack出力
-        st.subheader("中間レビュー: ペインポイント確認依頼")
-        
-        with st.expander("ペインポイント確認依頼フォーマット入力", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                # 開催日を日付選択に変更
-                開催日 = st.date_input("開催日", key="mid_review_開催日")
-                st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
-                st.session_state.seminar_集客人数 = st.text_input("集客人数", key="mid_review_集客人数")
-            with col2:
-                st.session_state.seminar_主催企業 = st.text_input("主催企業", key="mid_review_主催企業")
-                # 初稿UP期限を日付選択に変更
-                初稿UP期限 = st.date_input("初稿UP期限", key="mid_review_初稿UP期限")
-                st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
-
-        # 複数のURLに対応するための対応
-        product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
-        
-        selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index] if st.session_state.selected_pain_point_index is not None else None
-        
-        if selected_pain_point and st.button("ペインポイント確認依頼 Slack生成", key="generate_mid_review_format"):
-            mid_review_format = generate_pain_review_format(
-                st.session_state.seminar_開催日,
-                st.session_state.seminar_主催企業,
-                st.session_state.seminar_集客人数,
-                st.session_state.seminar_初稿UP期限,
-                product_urls_for_slack,
-                st.session_state.target_audience,
-                st.session_state.strengths,
-                selected_pain_point
-            )
-            st.subheader("生成されたペインポイント確認依頼 (Slackへコピペできます)")
-            st.code(mid_review_format, language="text")
             
     # Step 3: タイトル生成
     if st.session_state.generated_pain_points and st.session_state.selected_pain_point_index is not None:
@@ -1193,7 +1126,6 @@ def main():
         
         if st.button("タイトルを生成", key="generate_titles"):
             context = f"""
-カテゴリ: {st.session_state.selected_category}
 強み・差別化ポイント: {st.session_state.strengths}
 """
             with st.spinner("タイトルを生成中..."):
@@ -1218,7 +1150,7 @@ def main():
                     if cached_eval:
                         evaluation = cached_eval
                     else:
-                        analysis = st.session_state.evaluator.evaluate_title(full_title, st.session_state.selected_category)
+                        analysis = st.session_state.evaluator.evaluate_title(full_title)
                         evaluation = TitleEvaluation(
                             speed=analysis.predicted_speed,
                             grade=analysis.grade,
@@ -1273,7 +1205,7 @@ def main():
                                 refined_sub = refined_title.sub_title
 
                                 full_refined_title = f"{refined_main} - {refined_sub}"
-                                analysis = st.session_state.evaluator.evaluate_title(full_refined_title, st.session_state.selected_category)
+                                analysis = st.session_state.evaluator.evaluate_title(full_refined_title)
                                 evaluation = TitleEvaluation(
                                     speed=analysis.predicted_speed,
                                     grade=analysis.grade,
@@ -1303,10 +1235,7 @@ def main():
                             if cached_eval:
                                 evaluation = cached_eval
                             else:
-                                analysis = st.session_state.evaluator.evaluate_title(
-                                    full_title,
-                                    st.session_state.selected_category
-                                )
+                                analysis = st.session_state.evaluator.evaluate_title(full_title)
                                 evaluation = TitleEvaluation(
                                     speed=analysis.predicted_speed,
                                     grade=analysis.grade,
@@ -1327,8 +1256,43 @@ def main():
                         except Exception as e:
                             st.error(f"エラーが発生しました: {e}")
 
+            # 中間レビュー用フォーマット出力
+            st.subheader("中間レビュー: ペインポイント・タイトル確認依頼")
+            
+            with st.expander("ペインポイント・タイトル確認依頼フォーマット入力", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    # 開催日を日付選択に変更
+                    開催日 = st.date_input("開催日", key="mid_review_開催日")
+                    st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
+                    st.session_state.seminar_集客人数 = st.text_input("集客人数", key="mid_review_集客人数")
+                with col2:
+                    st.session_state.seminar_主催企業 = st.text_input("主催企業", key="mid_review_主催企業")
+                    # 初稿UP期限を日付選択に変更
+                    初稿UP期限 = st.date_input("初稿UP期限", key="mid_review_初稿UP期限")
+                    st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
+
+            # 選択されたタイトルとペインポイントを取得
+            selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index]
+            product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
+            
+            if st.session_state.selected_title and st.button("ペインポイント・タイトル確認依頼 Slack生成", key="generate_mid_review_format"):
+                mid_review_format = generate_mid_review_format(
+                    st.session_state.seminar_開催日,
+                    st.session_state.seminar_主催企業,
+                    st.session_state.seminar_集客人数,
+                    st.session_state.seminar_初稿UP期限,
+                    product_urls_for_slack,
+                    st.session_state.target_audience,
+                    st.session_state.strengths,
+                    selected_pain_point,
+                    st.session_state.selected_title
+                )
+                st.subheader("生成されたペインポイント・タイトル確認依頼 (Slackへコピペできます)")
+                st.code(mid_review_format, language="text")
+
             # Step 4: 見出し生成
-            if st.session_state.generated_titles and st.session_state.selected_title:
+            if st.session_state.selected_title:
                 st.header("Step 4: 見出し生成")
 
                 available_titles = []
