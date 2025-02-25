@@ -364,15 +364,16 @@ class BodyGenerator:
         self.model = model
         self.fixed_prompt_part = """
 以下のセミナータイトルと見出しに基づいて、本文を生成してください。
-各見出しは、対応するセクションの**先頭行**に**マークダウンの見出し形式（#### 見出し）**で出力してください。
+各見出しは、対応するセクションの**先頭行**に**マークダウンの見出し形式（## 見出し）**で出力してください。
+見出しは変更せず、そのまま使用してください。
 
 タイトル：「{title}」
 
-{background}
+## {background}
 
-{problem}
+## {problem}
 
-{solution}
+## {solution}
 """
         self.user_editable_prompt = """
 以下の制約条件と入力情報を踏まえて本文を生成してください。
@@ -489,9 +490,9 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 {セミナータイトル}
 
 ■見出し：
-# {background_text}
-# {problem_text}
-# {solution_text}
+# {見出し_background}
+# {見出し_problem}
+# {見出し_solution}
 """
     return format_text
 
@@ -1083,13 +1084,28 @@ def main():
                                 st.session_state.body_prompt
                             )
                             st.session_state.generated_body = generated_body
+                            
                             # 生成された本文をセクションごとに分割してsession_stateに保存
-                            body_sections = generated_body.split("#### ")
-                            if len(body_sections) == 4: # 見出しが3つ + 冒頭の不要な空要素
+                            # まず見出しを取得
+                            background_heading = f"## {st.session_state.manual_headlines.background}"
+                            problem_heading = f"## {st.session_state.manual_headlines.problem}"
+                            solution_heading = f"## {st.session_state.manual_headlines.solution}"
+                            
+                            # 本文を分割する位置を特定
+                            background_start = generated_body.find(background_heading) + len(background_heading)
+                            problem_start = generated_body.find(problem_heading)
+                            solution_start = generated_body.find(solution_heading)
+                            
+                            if background_start >= 0 and problem_start >= 0 and solution_start >= 0:
+                                # 各セクションの本文を抽出
+                                background_text = generated_body[background_start:problem_start].strip()
+                                problem_text = generated_body[problem_start + len(problem_heading):solution_start].strip()
+                                solution_text = generated_body[solution_start + len(solution_heading):].strip()
+                                
                                 st.session_state.refined_body_sections = {
-                                    "background": body_sections[1],
-                                    "problem": body_sections[2],
-                                    "solution": body_sections[3]
+                                    "background": background_text,
+                                    "problem": problem_text,
+                                    "solution": solution_text
                                 }
                             else:
                                 st.error("本文セクションの分割に失敗しました。生成された本文の形式が想定外です。")
@@ -1102,21 +1118,59 @@ def main():
                     st.subheader("生成された本文")
 
                     if st.session_state.refined_body_sections:
-                        sections = ["background", "problem", "solution"]
-                        for section_type in sections:
-                            st.subheader(f"#### {section_type.capitalize()}セクション")
-                            section_text = st.session_state.refined_body_sections[section_type]
-                            st.markdown(section_text) # Markdown形式で表示
-                            col1, col2 = st.columns([4, 1])
-                            with col1:
-                                refine_body_prompt = st.text_area(f"修正指示 ({section_type})", key=f"refine_body_prompt_{section_type}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
-                            with col2:
-                                if st.button("修正", key=f"refine_body_button_{section_type}"):
-                                    with st.spinner(f"{section_type.capitalize()}セクション修正中..."):
-                                        refined_section = body_generator.refine_body_section(section_text, refine_body_prompt, section_type.capitalize())
-                                        if refined_section:
-                                            st.session_state.refined_body_sections[section_type] = refined_section.refined_text
-                                            st.rerun() # UIを再描画して修正を反映
+                        # 背景セクション
+                        st.markdown(f"## {st.session_state.manual_headlines.background}")
+                        st.markdown(st.session_state.refined_body_sections["background"])
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            background_prompt = st.text_area("修正指示 (背景)", key="refine_body_prompt_background", height=70, placeholder="例：もっと具体的に")
+                        with col2:
+                            if st.button("修正", key="refine_body_button_background"):
+                                with st.spinner("背景セクション修正中..."):
+                                    refined_section = body_generator.refine_body_section(
+                                        st.session_state.refined_body_sections["background"], 
+                                        background_prompt, 
+                                        "背景"
+                                    )
+                                    if refined_section:
+                                        st.session_state.refined_body_sections["background"] = refined_section.refined_text
+                                        st.rerun()
+
+                        # 課題セクション
+                        st.markdown(f"## {st.session_state.manual_headlines.problem}")
+                        st.markdown(st.session_state.refined_body_sections["problem"])
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            problem_prompt = st.text_area("修正指示 (課題)", key="refine_body_prompt_problem", height=70, placeholder="例：もっと具体的に")
+                        with col2:
+                            if st.button("修正", key="refine_body_button_problem"):
+                                with st.spinner("課題セクション修正中..."):
+                                    refined_section = body_generator.refine_body_section(
+                                        st.session_state.refined_body_sections["problem"], 
+                                        problem_prompt, 
+                                        "課題"
+                                    )
+                                    if refined_section:
+                                        st.session_state.refined_body_sections["problem"] = refined_section.refined_text
+                                        st.rerun()
+
+                        # 解決策セクション
+                        st.markdown(f"## {st.session_state.manual_headlines.solution}")
+                        st.markdown(st.session_state.refined_body_sections["solution"])
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            solution_prompt = st.text_area("修正指示 (解決策)", key="refine_body_prompt_solution", height=70, placeholder="例：もっと具体的に")
+                        with col2:
+                            if st.button("修正", key="refine_body_button_solution"):
+                                with st.spinner("解決策セクション修正中..."):
+                                    refined_section = body_generator.refine_body_section(
+                                        st.session_state.refined_body_sections["solution"], 
+                                        solution_prompt, 
+                                        "解決策"
+                                    )
+                                    if refined_section:
+                                        st.session_state.refined_body_sections["solution"] = refined_section.refined_text
+                                        st.rerun()
 
                     else: # refined_body_sections がない場合（エラー発生時など）はプレーンテキストで全体を表示
                         st.write(st.session_state.generated_body)
@@ -1190,9 +1244,9 @@ def main():
                         st.session_state.manual_headlines.solution,
                         st.session_state.target_audience,
                         pain_points,
-                        st.session_state.refined_body_sections.get("background", ""),
-                        st.session_state.refined_body_sections.get("problem", ""),
-                        st.session_state.refined_body_sections.get("solution", "")
+                        st.session_state.manual_headlines.background,  # 見出しの本文を使用
+                        st.session_state.manual_headlines.problem,
+                        st.session_state.manual_headlines.solution
                     )
                     st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
                     st.code(plan_format_text, language="text")
