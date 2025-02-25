@@ -49,6 +49,15 @@ class WebContent:
     error: Optional[str] = None
 
 @dataclass
+class PainPoint:
+    title: str
+    description: str
+    selected: bool = False
+    
+    def to_text(self) -> str:
+        return f"{self.title}：{self.description}"
+
+@dataclass
 class TitleAnalysis:
     predicted_speed: float
     grade: str
@@ -159,6 +168,142 @@ class BodySection(BaseModel):
             "refined_text": self.refined_text,
         }
 
+class RefinedPainPoint(BaseModel):
+    title: str = Field(description="修正後のペインポイントタイトル")
+    description: str = Field(description="修正後のペインポイント詳細")
+
+    def model_dump(self) -> Dict[str, str]:
+        return {
+            "title": self.title,
+            "description": self.description,
+        }
+
+class PainPointGenerator:
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
+        self.client = OpenAI(api_key=api_key)
+        self.model = model
+        self.url_extractor = URLContentExtractor()
+        self.user_editable_prompt = """
+あなたは顧客の課題を深く理解するプロフェッショナルなマーケターです。
+提供された情報をもとに、製品・サービスが解決できる主要な顧客の課題（ペインポイント）を抽出してください。
+
+# 指示
+- 製品情報と強み・差別化ポイントを分析し、それらが最も効果的に解決できる課題を特定してください
+- 対象となるターゲット層が実際に直面している具体的な課題を抽出してください
+- 課題は具体的かつ明確に記述し、抽象的な表現は避けてください
+- 各ペインポイントは100-150文字程度で簡潔に記述してください
+- **ターゲット像を意識して課題を設定してください**
+
+# ターゲット像
+{target}
+
+# 強み・差別化ポイント
+{strengths}
+"""
+        self.fixed_output_instructions = """
+以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
+{
+    "pain_points": [
+        {
+            "title": "ペインポイント1のタイトル（15-20文字）",
+            "description": "ペインポイント1の詳細な説明（100-150文字）"
+        },
+        {
+            "title": "ペインポイント2のタイトル（15-20文字）",
+            "description": "ペインポイント2の詳細な説明（100-150文字）"
+        },
+        {
+            "title": "ペインポイント3のタイトル（15-20文字）",
+            "description": "ペインポイント3の詳細な説明（100-150文字）"
+        }
+    ]
+}
+"""
+
+    def generate_pain_points(self, target: str, strengths: str, prompt_template: str = None, product_urls: List[str] = None, file_contents: List[str] = None) -> List[PainPoint]:
+        additional_context = ""
+        
+        if product_urls:
+            for i, url in enumerate(product_urls, 1):
+                if url:  # URLが空でない場合のみ処理
+                    content = self.url_extractor.extract_with_trafilatura(url)
+                    if content and not content.error:
+                        additional_context += f"""
+製品{i}タイトル: {content.title}
+製品{i}説明: {content.description}
+製品{i}詳細: {content.main_content[:1000]}
+"""
+                    else:
+                        st.warning(f"製品{i}情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
+
+        if file_contents:
+            for i, file_content in enumerate(file_contents, 1):
+                additional_context += f"""
+アップロードされたファイル{i}の内容:
+{file_content}
+"""
+
+        prompt = (prompt_template or self.user_editable_prompt).format(target=target, strengths=strengths) + additional_context + self.fixed_output_instructions
+
+        result_text = None
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "あなたは優秀なマーケターです。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0
+            )
+
+            result_text = response.choices[0].message.content.strip()
+
+            try:
+                result = json.loads(result_text)
+            except json.JSONDecodeError:
+                start_index = result_text.find('{')
+                end_index = result_text.rfind('}') + 1
+                if start_index != -1 and end_index > start_index:
+                    json_text = result_text[start_index:end_index]
+                    result = json.loads(json_text)
+                else:
+                    raise ValueError("ペインポイントを抽出できませんでした")
+
+            if not isinstance(result, dict) or "pain_points" not in result:
+                raise ValueError("不正な応答形式です")
+
+            pain_points = result["pain_points"]
+            if not isinstance(pain_points, list) or not pain_points:
+                raise ValueError("ペインポイントが見つかりません")
+
+            return [PainPoint(title=p.get("title", ""), description=p.get("description", "")) for p in pain_points[:3]]
+
+        except Exception as e:
+            st.error(f"エラーが発生しました: {e}")
+            if result_text:
+                st.error(f"AIからの応答:\n{result_text}")
+            return []
+
+    def refine_pain_point(self, title: str, description: str, prompt: str) -> Optional[Dict[str, str]]:
+        parser = PydanticOutputParser(pydantic_object=RefinedPainPoint)
+
+        prompt_template = PromptTemplate(
+            template="以下のペインポイントを修正してください。\n{format_instructions}\nタイトル: {title}\n詳細: {description}\n要望: {prompt}",
+            input_variables=["title", "description", "prompt"],
+            partial_variables={"format_instructions": parser.get_format_instructions()}
+        )
+
+        llm = ChatOpenAI(temperature=0, model=self.model, openai_api_key=self.client.api_key)
+        chain = prompt_template | llm | parser
+
+        try:
+            output = chain.invoke({"title": title, "description": description, "prompt": prompt})
+            return output
+        except Exception as e:
+            st.error(f"Langchainによるペインポイント修正でエラーが発生しました: {e}")
+            return None
+
 class TitleGenerator:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.client = OpenAI(api_key=api_key)
@@ -175,13 +320,18 @@ class TitleGenerator:
 - 感嘆符（！）は使用しない
 - 参加したら何がわかるのかが明確である
 - **ターゲット像を意識する**
+- **選択されたペインポイントに基づいたタイトルにする**
 
 # ターゲット像
 {target}
 
+# 選択されたペインポイント
+【タイトル】{pain_point_title}
+【詳細】{pain_point_description}
+
 # Steps
 
-1. 入力情報とターゲット像から製品の特徴とターゲットのペインポイントを理解する
+1. 入力情報、ターゲット像、ペインポイントから製品の特徴とターゲットのペインポイントを理解する
 2. ターゲットのペインポイントに基づき、メインタイトルで問題点や課題、悩み、不安を投げかける
 3. 製品の特徴に基づき、サブタイトルでメインタイトルで表現したインサイトを解決する手段や手法、アプローチ、その先に得られるベネフィットを表現する
 4. メインタイトルとサブタイトルをそれぞれ40文字以内で簡潔に表現する
@@ -213,7 +363,7 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, target: str, prompt_template: str = None, product_urls: List[str] = None, file_contents: List[str] = None) -> List[Dict[str, str]]:
+    def generate_titles(self, context: str, target: str, pain_point: PainPoint, prompt_template: str = None, product_urls: List[str] = None, file_contents: List[str] = None) -> List[Dict[str, str]]:
             additional_context = ""
             
             if product_urls:
@@ -239,7 +389,11 @@ class TitleGenerator:
             prompt = f"""
 # 入力情報
 {context}
-""" + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
+""" + (prompt_template or self.user_editable_prompt).format(
+                target=target, 
+                pain_point_title=pain_point.title,
+                pain_point_description=pain_point.description
+            ) + additional_context + self.fixed_output_instructions
 
             result_text = None
 
@@ -317,6 +471,10 @@ class HeadlineGenerator:
 
 # ターゲット像
 {target}
+
+# 選択されたペインポイント
+【タイトル】{pain_point_title}
+【詳細】{pain_point_description}
 """
         self.fixed_output_instructions = """
 以下の形式でJSONを出力してください。余分なテキストは含めず、JSONオブジェクトのみを出力してください：
@@ -327,8 +485,12 @@ class HeadlineGenerator:
 }
 """
 
-    def generate_headlines(self, title: str, target: str, prompt_template: str = None) -> HeadlineSet:
-            prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(target=target) + self.fixed_output_instructions
+    def generate_headlines(self, title: str, target: str, pain_point: PainPoint, prompt_template: str = None) -> HeadlineSet:
+            prompt = self.fixed_prompt_part.format(title=title) + (prompt_template or self.user_editable_prompt).format(
+                target=target, 
+                pain_point_title=pain_point.title,
+                pain_point_description=pain_point.description
+            ) + self.fixed_output_instructions
 
             try:
                 response = self.client.chat.completions.create(
@@ -389,18 +551,27 @@ class BodyGenerator:
 - あくまでセミナー集客用の文章であることを念頭に、魅力的かつ説得力のある内容にしてください。
 - **見出し１（背景）と見出し２（課題）の本文では、解決策には触れないでください。**
 - **ターゲット像を意識する**
+- **選択されたペインポイントに沿った内容にする**
 
 # ターゲット像
 {target}
+
+# 選択されたペインポイント
+【タイトル】{pain_point_title}
+【詳細】{pain_point_description}
 """
 
-    def generate_body(self, title: str, headlines: HeadlineSet, target: str, prompt_template: str = None) -> str:
+    def generate_body(self, title: str, headlines: HeadlineSet, target: str, pain_point: PainPoint, prompt_template: str = None) -> str:
         prompt = self.fixed_prompt_part.format(
             title=title,
             background=headlines.background,
             problem=headlines.problem,
             solution=headlines.solution
-        ) + (prompt_template or self.user_editable_prompt).format(target=target)
+        ) + (prompt_template or self.user_editable_prompt).format(
+            target=target, 
+            pain_point_title=pain_point.title,
+            pain_point_description=pain_point.description
+        )
 
         try:
             response = self.client.chat.completions.create(
@@ -439,7 +610,7 @@ class BodyGenerator:
 
 
 # Slack投稿フォーマット生成機能 (ペイン案レビュー用)
-def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, pain_points):
+def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, ターゲット, 強み, pain_point):
     format_text = f"""【ペインポイント案の確認依頼】
 
 下記、ご確認をお願いします。
@@ -456,15 +627,19 @@ def generate_pain_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 ＜ターゲット＞
 {ターゲット}
 
+＜強み・差別化ポイント＞
+{強み}
+
 ＜ペインポイント＞
-{pain_points}
+【タイトル】{pain_point.title}
+【詳細】{pain_point.description}
 """
     return format_text
 
 # Slack投稿フォーマット生成機能 (企画案レビュー用)
 def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP期限, 参考情報, セミナータイトル, 
                                見出し_background, 見出し_problem, 見出し_solution, 
-                               ターゲット, pain_points, 
+                               ターゲット, pain_point, 強み,
                                background_text, problem_text, solution_text):
     format_text = f"""【タイトル・見出しの確認依頼】
 
@@ -482,8 +657,12 @@ def generate_plan_review_format(開催日, 主催企業, 集客人数, 初稿UP�
 ＜ターゲット＞
 {ターゲット}
 
+＜強み・差別化ポイント＞
+{強み}
+
 ＜ペインポイント＞
-{pain_points}
+【タイトル】{pain_point.title}
+【詳細】{pain_point.description}
 
 ＜オファー＞
 ※ここに追記※
@@ -738,6 +917,18 @@ def init_session_state():
         st.session_state.product_urls = ["", "", ""]
     if 'file_contents' not in st.session_state:
         st.session_state.file_contents = []
+    
+    # ペインポイント生成関連
+    if 'generated_pain_points' not in st.session_state:
+        st.session_state.generated_pain_points = []
+    if 'selected_pain_point_index' not in st.session_state:
+        st.session_state.selected_pain_point_index = None
+    if 'strengths' not in st.session_state:
+        st.session_state.strengths = ""
+    if 'pain_point_prompt' not in st.session_state:
+        st.session_state.pain_point_prompt = PainPointGenerator("dummy_key").user_editable_prompt
+    if 'manual_pain_point' not in st.session_state:
+        st.session_state.manual_pain_point = None
 
     # セミナー開催情報用のsession_state（空の初期値）
     if 'seminar_開催日' not in st.session_state:
@@ -784,6 +975,7 @@ def main():
                 return
 
     model_name = "gpt-4o"
+    pain_point_generator = PainPointGenerator(api_key, model=model_name)
     title_generator = TitleGenerator(api_key, model=model_name)
     headline_generator = HeadlineGenerator(api_key, model=model_name)
     body_generator = BodyGenerator(api_key, model=model_name)
@@ -817,8 +1009,8 @@ def main():
                         st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
     
     with col2:
-        # 右側のカラム - ペインポイント、カテゴリ、ターゲット像
-        pain_points = st.text_area("ペインポイント", height=100)
+        # 右側のカラム - 強み・差別化ポイント、カテゴリ、ターゲット像
+        st.session_state.strengths = st.text_area("強み・差別化ポイント", value=st.session_state.strengths, height=100)
         
         category = st.selectbox(
             "カテゴリ",
@@ -866,30 +1058,157 @@ def main():
     # ファイル内容をセッションに保存
     st.session_state.file_contents = file_contents
 
-    with st.expander("タイトル生成プロンプトの編集", expanded=False):
-        st.session_state.title_prompt = st.text_area(
+    # Step 2: ペインポイント生成
+    st.header("Step 2: ペインポイント生成")
+
+    with st.expander("ペインポイント生成プロンプトの編集", expanded=False):
+        st.session_state.pain_point_prompt = st.text_area(
             "プロンプトテンプレート",
-            value=st.session_state.title_prompt,
+            value=st.session_state.pain_point_prompt,
             height=400
         )
 
-    if st.button("タイトルを生成", key="generate_titles"):
-        context = f"""
-ペインポイント: {pain_points}
-カテゴリ: {category}
+    if st.button("ペインポイントを生成", key="generate_pain_points"):
+        if not st.session_state.target_audience:
+            st.error("ターゲット像を入力してください")
+        elif not st.session_state.strengths:
+            st.error("強み・差別化ポイントを入力してください")
+        else:
+            with st.spinner("ペインポイントを生成中..."):
+                # 空でないURLのみを渡す
+                valid_urls = [url for url in st.session_state.product_urls if url]
+                
+                pain_points = pain_point_generator.generate_pain_points(
+                    st.session_state.target_audience,
+                    st.session_state.strengths,
+                    st.session_state.pain_point_prompt,
+                    valid_urls,
+                    st.session_state.file_contents
+                )
+
+                if pain_points:
+                    st.session_state.generated_pain_points = pain_points
+                    st.session_state.selected_pain_point_index = 0  # 最初のペインポイントを選択
+                    st.rerun()
+
+    # 生成されたペインポイントの表示
+    if st.session_state.generated_pain_points:
+        st.subheader("生成されたペインポイント")
+        
+        for i, pain_point in enumerate(st.session_state.generated_pain_points):
+            col1, col2, col3 = st.columns([0.5, 5, 1])
+            
+            with col1:
+                is_selected = st.radio(
+                    "選択",
+                    ["✓"],
+                    key=f"pain_point_radio_{i}",
+                    label_visibility="collapsed",
+                    index=0 if i == st.session_state.selected_pain_point_index else None
+                )
+                if is_selected:
+                    st.session_state.selected_pain_point_index = i
+            
+            with col2:
+                st.write(f"**タイトル:** {pain_point.title}")
+                st.write(f"**詳細:** {pain_point.description}")
+            
+            with col3:
+                修正プロンプト = st.text_area("修正依頼", key=f"refine_pain_point_{i}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
+                if st.button("修正", key=f"refine_pain_point_button_{i}"):
+                    with st.spinner("ペインポイント修正中..."):
+                        refined_pain_point = pain_point_generator.refine_pain_point(pain_point.title, pain_point.description, 修正プロンプト)
+                        if refined_pain_point:
+                            refined_title = refined_pain_point.title
+                            refined_description = refined_pain_point.description
+                            
+                            st.session_state.generated_pain_points[i] = PainPoint(
+                                title=refined_title,
+                                description=refined_description
+                            )
+                            st.rerun()
+
+        # 手動ペインポイント追加
+        st.subheader("手動ペインポイント追加")
+        col1, col2 = st.columns([4, 1])
+        
+        with col1:
+            manual_title = st.text_input("ペインポイントタイトル", key="manual_pain_point_title")
+            manual_description = st.text_area("ペインポイント詳細", key="manual_pain_point_description")
+        
+        with col2:
+            if st.button("追加", key="add_manual_pain_point") and manual_title and manual_description:
+                new_pain_point = PainPoint(title=manual_title, description=manual_description)
+                st.session_state.generated_pain_points.append(new_pain_point)
+                st.session_state.selected_pain_point_index = len(st.session_state.generated_pain_points) - 1
+                st.rerun()
+
+        # ペインポイントレビュー用Slack出力
+        st.subheader("中間レビュー: ペインポイント確認依頼")
+        
+        with st.expander("ペインポイント確認依頼フォーマット入力", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                # 開催日を日付選択に変更
+                開催日 = st.date_input("開催日", key="mid_review_開催日")
+                st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
+                st.session_state.seminar_集客人数 = st.text_input("集客人数", key="mid_review_集客人数")
+            with col2:
+                st.session_state.seminar_主催企業 = st.text_input("主催企業", key="mid_review_主催企業")
+                # 初稿UP期限を日付選択に変更
+                初稿UP期限 = st.date_input("初稿UP期限", key="mid_review_初稿UP期限")
+                st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
+
+        # 複数のURLに対応するための対応
+        product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
+        
+        selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index] if st.session_state.selected_pain_point_index is not None else None
+        
+        if selected_pain_point and st.button("ペインポイント確認依頼 Slack生成", key="generate_mid_review_format"):
+            mid_review_format = generate_pain_review_format(
+                st.session_state.seminar_開催日,
+                st.session_state.seminar_主催企業,
+                st.session_state.seminar_集客人数,
+                st.session_state.seminar_初稿UP期限,
+                product_urls_for_slack,
+                st.session_state.target_audience,
+                st.session_state.strengths,
+                selected_pain_point
+            )
+            st.subheader("生成されたペインポイント確認依頼 (Slackへコピペできます)")
+            st.code(mid_review_format, language="text")
+            
+    # Step 3: タイトル生成
+    if st.session_state.generated_pain_points and st.session_state.selected_pain_point_index is not None:
+        st.header("Step 3: タイトル生成")
+        
+        with st.expander("タイトル生成プロンプトの編集", expanded=False):
+            st.session_state.title_prompt = st.text_area(
+                "プロンプトテンプレート",
+                value=st.session_state.title_prompt,
+                height=400
+            )
+
+        selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index]
+        
+        if st.button("タイトルを生成", key="generate_titles"):
+            context = f"""
+カテゴリ: {st.session_state.selected_category}
+強み・差別化ポイント: {st.session_state.strengths}
 """
-        with st.spinner("タイトルを生成中..."):
-            try:
+            with st.spinner("タイトルを生成中..."):
                 # 空でないURLのみを渡す
                 valid_urls = [url for url in st.session_state.product_urls if url]
                 
                 titles = title_generator.generate_titles(
                     context,
                     st.session_state.target_audience,
+                    selected_pain_point,
                     st.session_state.title_prompt,
                     valid_urls,
                     st.session_state.file_contents
                 )
+                
                 st.session_state.generated_titles = []
                 for title in titles:
                     main_title = title.get("main_title", "")
@@ -899,7 +1218,7 @@ def main():
                     if cached_eval:
                         evaluation = cached_eval
                     else:
-                        analysis = st.session_state.evaluator.evaluate_title(full_title, category)
+                        analysis = st.session_state.evaluator.evaluate_title(full_title, st.session_state.selected_category)
                         evaluation = TitleEvaluation(
                             speed=analysis.predicted_speed,
                             grade=analysis.grade,
@@ -915,349 +1234,322 @@ def main():
                             original_sub_title=sub_title
                         )
                     )
-            except Exception as e:
-                st.error(f"エラーが発生しました: {e}")
 
-    # ... [以下、UIの残りの部分] ...
-    if st.session_state.generated_titles:
-        st.header("Step 2: タイトル評価・選択")
-
-        st.subheader("生成タイトル")
-        for i, gen_title in enumerate(st.session_state.generated_titles):
-            cols = st.columns([0.5, 2, 2, 1, 1, 2, 1])
-            with cols[0]:
-                if st.radio(
-                    "選択",
-                    ["✓"],
-                    key=f"radio_{i}",
-                    label_visibility="collapsed"
-                ):
-                    st.session_state.selected_title = f"{gen_title.main_title} - {gen_title.sub_title}"
-            with cols[1]:
-                st.write(f"**メインタイトル:** {gen_title.main_title}")
-            with cols[2]:
-                st.write(f"**サブタイトル:** {gen_title.sub_title}")
-            with cols[3]:
-                st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
-            with cols[4]:
-                grade_colors = {"A": "green", "B": "orange", "C": "red"}
-                grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
-                st.markdown(
-                    f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
-                    unsafe_allow_html=True
-                )
-            with cols[5]:
-                st.write(f"**評価:** {gen_title.evaluation.comment}")
-            with cols[6]:
-                修正プロンプト = st.text_area("修正依頼", key=f"refine_prompt_{i}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
-                if st.button("修正", key=f"refine_button_{i}"):
-                    with st.spinner("タイトル修正中..."):
-                        refined_title = title_generator.refine_title(gen_title.main_title, gen_title.sub_title, 修正プロンプト)
-                        if refined_title:
-                            refined_main = refined_title.main_title
-                            refined_sub = refined_title.sub_title
-
-                            full_refined_title = f"{refined_main} - {refined_sub}"
-                            analysis = st.session_state.evaluator.evaluate_title(full_refined_title, category)
-                            evaluation = TitleEvaluation(
-                                speed=analysis.predicted_speed,
-                                grade=analysis.grade,
-                                comment=analysis.evaluation_comment
-                            )
-                            st.session_state.generated_titles[i] = GeneratedTitle(
-                                main_title=refined_main,
-                                sub_title=refined_sub,
-                                evaluation=evaluation,
-                                original_main_title=gen_title.original_main_title,
-                                original_sub_title=gen_title.original_sub_title
-                            )
-                            st.rerun()
-
-        # 手動タイトル評価
-        st.subheader("手動タイトル評価")
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            manual_main_title = st.text_input("メインタイトル", key="manual_main_title")
-            manual_sub_title = st.text_input("サブタイトル", key="manual_sub_title")
-        with col2:
-            if st.button("評価する", key="evaluate_manual") and manual_main_title:
-                with st.spinner("評価中..."):
-                    try:
-                        full_title = f"{manual_main_title} - {manual_sub_title}"
-                        cached_eval = cache.get_evaluation(full_title)
-                        if cached_eval:
-                            evaluation = cached_eval
-                        else:
-                            analysis = st.session_state.evaluator.evaluate_title(
-                                full_title,
-                                st.session_state.selected_category
-                            )
-                            evaluation = TitleEvaluation(
-                                speed=analysis.predicted_speed,
-                                grade=analysis.grade,
-                                comment=analysis.evaluation_comment
-                            )
-                            cache.set_evaluation(full_title, evaluation)
-                        st.session_state.generated_titles.append(
-                            GeneratedTitle(
-                                main_title=manual_main_title,
-                                sub_title=manual_sub_title,
-                                evaluation=evaluation,
-                                original_main_title=manual_main_title,
-                                original_sub_title=manual_sub_title
-                            )
-                        )
-
-                        display_evaluation_details(full_title, st.session_state.evaluator)
-                    except Exception as e:
-                        st.error(f"エラーが発生しました: {e}")
-
-        # Step 3: 見出し生成
-        if st.session_state.generated_titles and st.session_state.selected_title:
-            st.header("Step 3: 見出し生成")
-
-            available_titles = []
-            for gen_title in st.session_state.generated_titles:
-                full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
-                available_titles.append(full_title)
-
-            st.session_state.selected_title_for_headline = st.selectbox(
-                "見出しを生成するタイトルを選択してください",
-                options=available_titles,
-                index=available_titles.index(st.session_state.selected_title) if st.session_state.selected_title in available_titles else 0
-            )
-
-            with st.expander("見出し生成プロンプトの編集", expanded=False):
-                st.session_state.headline_prompt = st.text_area(
-                    "プロンプトテンプレート",
-                    value=st.session_state.headline_prompt,
-                    height=400
-                )
-
-            if st.button("見出しを生成", key="generate_headlines"):
-                with st.spinner("見出しを生成中..."):
-                    try:
-                        headlines = headline_generator.generate_headlines(
-                            st.session_state.selected_title_for_headline,
-                            st.session_state.target_audience,
-                            st.session_state.headline_prompt
-                        )
-                        st.session_state.headlines = headlines
-                        st.session_state.manual_headlines = headlines
-                    except Exception as e:
-                        st.error(f"エラーが発生しました: {e}")
-
-            if st.session_state.manual_headlines:
-                st.subheader("生成された見出し（編集可能）")
-
-                background = st.text_area(
-                    "背景",
-                    value=st.session_state.manual_headlines.background,
-                    key="edit_background"
-                )
-                problem = st.text_area(
-                    "課題",
-                    value=st.session_state.manual_headlines.problem,
-                    key="edit_problem"
-                )
-                solution = st.text_area(
-                    "解決策",
-                    value=st.session_state.manual_headlines.solution,
-                    key="edit_solution"
-                )
-
-                st.session_state.manual_headlines = HeadlineSet(
-                    background=background,
-                    problem=problem,
-                    solution=solution
-                )
-
-                # Step 4: 本文生成
-                st.header("Step 4: 本文生成")
-
-                with st.expander("本文生成プロンプトの編集", expanded=False):
-                    st.session_state.body_prompt = st.text_area(
-                        "本文生成プロンプトテンプレート",
-                        value=st.session_state.body_prompt,
-                        height=400
+        # タイトル評価・選択
+        if st.session_state.generated_titles:
+            st.subheader("生成タイトル")
+            for i, gen_title in enumerate(st.session_state.generated_titles):
+                cols = st.columns([0.5, 2, 2, 1, 1, 2, 1])
+                with cols[0]:
+                    if st.radio(
+                        "選択",
+                        ["✓"],
+                        key=f"radio_{i}",
+                        label_visibility="collapsed"
+                    ):
+                        st.session_state.selected_title = f"{gen_title.main_title} - {gen_title.sub_title}"
+                with cols[1]:
+                    st.write(f"**メインタイトル:** {gen_title.main_title}")
+                with cols[2]:
+                    st.write(f"**サブタイトル:** {gen_title.sub_title}")
+                with cols[3]:
+                    st.metric("集客速度", f"{gen_title.evaluation.speed:.1f}")
+                with cols[4]:
+                    grade_colors = {"A": "green", "B": "orange", "C": "red"}
+                    grade_color = grade_colors.get(gen_title.evaluation.grade, "gray")
+                    st.markdown(
+                        f'<p style="color: {grade_color}; font-weight: bold; text-align: center;">評価: {gen_title.evaluation.grade}</p>',
+                        unsafe_allow_html=True
                     )
+                with cols[5]:
+                    st.write(f"**評価:** {gen_title.evaluation.comment}")
+                with cols[6]:
+                    修正プロンプト = st.text_area("修正依頼", key=f"refine_prompt_{i}", height=70, label_visibility="collapsed", placeholder="例：もっと具体的に")
+                    if st.button("修正", key=f"refine_button_{i}"):
+                        with st.spinner("タイトル修正中..."):
+                            refined_title = title_generator.refine_title(gen_title.main_title, gen_title.sub_title, 修正プロンプト)
+                            if refined_title:
+                                refined_main = refined_title.main_title
+                                refined_sub = refined_title.sub_title
 
-                if st.button("本文を生成", key="generate_body"):
-                    with st.spinner("本文を生成中..."):
+                                full_refined_title = f"{refined_main} - {refined_sub}"
+                                analysis = st.session_state.evaluator.evaluate_title(full_refined_title, st.session_state.selected_category)
+                                evaluation = TitleEvaluation(
+                                    speed=analysis.predicted_speed,
+                                    grade=analysis.grade,
+                                    comment=analysis.evaluation_comment
+                                )
+                                st.session_state.generated_titles[i] = GeneratedTitle(
+                                    main_title=refined_main,
+                                    sub_title=refined_sub,
+                                    evaluation=evaluation,
+                                    original_main_title=gen_title.original_main_title,
+                                    original_sub_title=gen_title.original_sub_title
+                                )
+                                st.rerun()
+
+            # 手動タイトル評価
+            st.subheader("手動タイトル評価")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                manual_main_title = st.text_input("メインタイトル", key="manual_main_title")
+                manual_sub_title = st.text_input("サブタイトル", key="manual_sub_title")
+            with col2:
+                if st.button("評価する", key="evaluate_manual") and manual_main_title:
+                    with st.spinner("評価中..."):
                         try:
-                            generated_body = body_generator.generate_body(
-                                st.session_state.selected_title_for_headline,
-                                st.session_state.manual_headlines,
-                                st.session_state.target_audience,
-                                st.session_state.body_prompt
-                            )
-                            st.session_state.generated_body = generated_body
-                            
-                            # 生成された本文をセクションごとに分割してsession_stateに保存
-                            # まず見出しを取得
-                            background_heading = f"## {st.session_state.manual_headlines.background}"
-                            problem_heading = f"## {st.session_state.manual_headlines.problem}"
-                            solution_heading = f"## {st.session_state.manual_headlines.solution}"
-                            
-                            # 本文を分割する位置を特定
-                            background_start = generated_body.find(background_heading) + len(background_heading)
-                            problem_start = generated_body.find(problem_heading)
-                            solution_start = generated_body.find(solution_heading)
-                            
-                            if background_start >= 0 and problem_start >= 0 and solution_start >= 0:
-                                # 各セクションの本文を抽出
-                                background_text = generated_body[background_start:problem_start].strip()
-                                problem_text = generated_body[problem_start + len(problem_heading):solution_start].strip()
-                                solution_text = generated_body[solution_start + len(solution_heading):].strip()
-                                
-                                st.session_state.refined_body_sections = {
-                                    "background": background_text,
-                                    "problem": problem_text,
-                                    "solution": solution_text
-                                }
+                            full_title = f"{manual_main_title} - {manual_sub_title}"
+                            cached_eval = cache.get_evaluation(full_title)
+                            if cached_eval:
+                                evaluation = cached_eval
                             else:
-                                st.error("本文セクションの分割に失敗しました。生成された本文の形式が想定外です。")
-                                st.session_state.refined_body_sections = {} # エラー時は空で初期化
+                                analysis = st.session_state.evaluator.evaluate_title(
+                                    full_title,
+                                    st.session_state.selected_category
+                                )
+                                evaluation = TitleEvaluation(
+                                    speed=analysis.predicted_speed,
+                                    grade=analysis.grade,
+                                    comment=analysis.evaluation_comment
+                                )
+                                cache.set_evaluation(full_title, evaluation)
+                            st.session_state.generated_titles.append(
+                                GeneratedTitle(
+                                    main_title=manual_main_title,
+                                    sub_title=manual_sub_title,
+                                    evaluation=evaluation,
+                                    original_main_title=manual_main_title,
+                                    original_sub_title=manual_sub_title
+                                )
+                            )
 
+                            display_evaluation_details(full_title, st.session_state.evaluator)
                         except Exception as e:
                             st.error(f"エラーが発生しました: {e}")
 
-                if st.session_state.generated_body:
-                    st.subheader("生成された本文")
+            # Step 4: 見出し生成
+            if st.session_state.generated_titles and st.session_state.selected_title:
+                st.header("Step 4: 見出し生成")
 
-                    if st.session_state.refined_body_sections:
-                        # 背景セクション
-                        st.markdown(f"## {st.session_state.manual_headlines.background}")
-                        st.markdown(st.session_state.refined_body_sections["background"])
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            background_prompt = st.text_area("修正指示 (背景)", key="refine_body_prompt_background", height=70, placeholder="例：もっと具体的に")
-                        with col2:
-                            if st.button("修正", key="refine_body_button_background"):
-                                with st.spinner("背景セクション修正中..."):
-                                    refined_section = body_generator.refine_body_section(
-                                        st.session_state.refined_body_sections["background"], 
-                                        background_prompt, 
-                                        "背景"
-                                    )
-                                    if refined_section:
-                                        st.session_state.refined_body_sections["background"] = refined_section.refined_text
-                                        st.rerun()
+                available_titles = []
+                for gen_title in st.session_state.generated_titles:
+                    full_title = f"{gen_title.main_title} - {gen_title.sub_title}"
+                    available_titles.append(full_title)
 
-                        # 課題セクション
-                        st.markdown(f"## {st.session_state.manual_headlines.problem}")
-                        st.markdown(st.session_state.refined_body_sections["problem"])
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            problem_prompt = st.text_area("修正指示 (課題)", key="refine_body_prompt_problem", height=70, placeholder="例：もっと具体的に")
-                        with col2:
-                            if st.button("修正", key="refine_body_button_problem"):
-                                with st.spinner("課題セクション修正中..."):
-                                    refined_section = body_generator.refine_body_section(
-                                        st.session_state.refined_body_sections["problem"], 
-                                        problem_prompt, 
-                                        "課題"
-                                    )
-                                    if refined_section:
-                                        st.session_state.refined_body_sections["problem"] = refined_section.refined_text
-                                        st.rerun()
+                st.session_state.selected_title_for_headline = st.selectbox(
+                    "見出しを生成するタイトルを選択してください",
+                    options=available_titles,
+                    index=available_titles.index(st.session_state.selected_title) if st.session_state.selected_title in available_titles else 0
+                )
 
-                        # 解決策セクション
-                        st.markdown(f"## {st.session_state.manual_headlines.solution}")
-                        st.markdown(st.session_state.refined_body_sections["solution"])
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            solution_prompt = st.text_area("修正指示 (解決策)", key="refine_body_prompt_solution", height=70, placeholder="例：もっと具体的に")
-                        with col2:
-                            if st.button("修正", key="refine_body_button_solution"):
-                                with st.spinner("解決策セクション修正中..."):
-                                    refined_section = body_generator.refine_body_section(
-                                        st.session_state.refined_body_sections["solution"], 
-                                        solution_prompt, 
-                                        "解決策"
-                                    )
-                                    if refined_section:
-                                        st.session_state.refined_body_sections["solution"] = refined_section.refined_text
-                                        st.rerun()
-
-                    else: # refined_body_sections がない場合（エラー発生時など）はプレーンテキストで全体を表示
-                        st.write(st.session_state.generated_body)
-
-
-        # Step 5: Slack投稿フォーマット生成
-        if st.session_state.generated_body:
-            st.header("Step 5: Slack投稿フォーマット生成")
-
-            slack_format_tab = st.tabs(["ペイン案レビュー", "企画案レビュー"])
-
-            with slack_format_tab[0]:
-                st.subheader("ペイン案レビュー Slack投稿フォーマット")
-                with st.expander("ペイン案レビュー Slack投稿フォーマット入力", expanded=True):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        # 開催日を日付選択に変更
-                        開催日 = st.date_input("開催日", key="pain_開催日")
-                        st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
-                        st.session_state.seminar_集客人数 = st.text_input("集客人数", key="pain_集客人数")
-                    with col2:
-                        st.session_state.seminar_主催企業 = st.text_input("主催企業", key="pain_主催企業")
-                        # 初稿UP期限を日付選択に変更
-                        初稿UP期限 = st.date_input("初稿UP期限", key="pain_初稿UP期限")
-                        st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
-
-                # 複数のURLに対応するための対応
-                product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
-
-                if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"):
-                    pain_format_text = generate_pain_review_format(
-                        st.session_state.seminar_開催日,
-                        st.session_state.seminar_主催企業,
-                        st.session_state.seminar_集客人数,
-                        st.session_state.seminar_初稿UP期限,
-                        product_urls_for_slack,
-                        st.session_state.target_audience,
-                        pain_points
+                with st.expander("見出し生成プロンプトの編集", expanded=False):
+                    st.session_state.headline_prompt = st.text_area(
+                        "プロンプトテンプレート",
+                        value=st.session_state.headline_prompt,
+                        height=400
                     )
-                    st.subheader("生成されたペイン案レビュー Slack投稿フォーマット (Slackへコピペできます)")
-                    st.code(pain_format_text, language="text")
 
-            with slack_format_tab[1]:
-                st.subheader("企画案レビュー Slack投稿フォーマット")
-                with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        # 開催日を日付選択に変更
-                        開催日 = st.date_input("開催日", key="plan_開催日")
-                        st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
-                        st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
-                    with col2:
-                        st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
-                        # 初稿UP期限を日付選択に変更
-                        初稿UP期限 = st.date_input("初稿UP期限", key="plan_初稿UP期限")
-                        st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
+                # 選択されたペインポイントを取得
+                selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index]
 
-                # 複数のURLに対応するための対応
-                product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
+                if st.button("見出しを生成", key="generate_headlines"):
+                    with st.spinner("見出しを生成中..."):
+                        try:
+                            headlines = headline_generator.generate_headlines(
+                                st.session_state.selected_title_for_headline,
+                                st.session_state.target_audience,
+                                selected_pain_point,
+                                st.session_state.headline_prompt
+                            )
+                            st.session_state.headlines = headlines
+                            st.session_state.manual_headlines = headlines
+                        except Exception as e:
+                            st.error(f"エラーが発生しました: {e}")
 
-                if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
-                    plan_format_text = generate_plan_review_format(
-                        st.session_state.seminar_開催日,
-                        st.session_state.seminar_主催企業,
-                        st.session_state.seminar_集客人数,
-                        st.session_state.seminar_初稿UP期限,
-                        product_urls_for_slack,  # 複数URLをまとめたもの
-                        st.session_state.selected_title_for_headline,
-                        st.session_state.manual_headlines.background,
-                        st.session_state.manual_headlines.problem,
-                        st.session_state.manual_headlines.solution,
-                        st.session_state.target_audience,
-                        pain_points,
-                        st.session_state.refined_body_sections.get("background", ""),
-                        st.session_state.refined_body_sections.get("problem", ""),
-                        st.session_state.refined_body_sections.get("solution", "")
+                if st.session_state.manual_headlines:
+                    st.subheader("生成された見出し（編集可能）")
+
+                    background = st.text_area(
+                        "背景",
+                        value=st.session_state.manual_headlines.background,
+                        key="edit_background"
                     )
-                    st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
-                    st.code(plan_format_text, language="text")
+                    problem = st.text_area(
+                        "課題",
+                        value=st.session_state.manual_headlines.problem,
+                        key="edit_problem"
+                    )
+                    solution = st.text_area(
+                        "解決策",
+                        value=st.session_state.manual_headlines.solution,
+                        key="edit_solution"
+                    )
+
+                    st.session_state.manual_headlines = HeadlineSet(
+                        background=background,
+                        problem=problem,
+                        solution=solution
+                    )
+
+                    # Step 5: 本文生成
+                    st.header("Step 5: 本文生成")
+
+                    with st.expander("本文生成プロンプトの編集", expanded=False):
+                        st.session_state.body_prompt = st.text_area(
+                            "本文生成プロンプトテンプレート",
+                            value=st.session_state.body_prompt,
+                            height=400
+                        )
+
+                    selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index]
+
+                    if st.button("本文を生成", key="generate_body"):
+                        with st.spinner("本文を生成中..."):
+                            try:
+                                generated_body = body_generator.generate_body(
+                                    st.session_state.selected_title_for_headline,
+                                    st.session_state.manual_headlines,
+                                    st.session_state.target_audience,
+                                    selected_pain_point,
+                                    st.session_state.body_prompt
+                                )
+                                st.session_state.generated_body = generated_body
+                                
+                                # 生成された本文をセクションごとに分割してsession_stateに保存
+                                # まず見出しを取得
+                                background_heading = f"## {st.session_state.manual_headlines.background}"
+                                problem_heading = f"## {st.session_state.manual_headlines.problem}"
+                                solution_heading = f"## {st.session_state.manual_headlines.solution}"
+                                
+                                # 本文を分割する位置を特定
+                                background_start = generated_body.find(background_heading) + len(background_heading)
+                                problem_start = generated_body.find(problem_heading)
+                                solution_start = generated_body.find(solution_heading)
+                                
+                                if background_start >= 0 and problem_start >= 0 and solution_start >= 0:
+                                    # 各セクションの本文を抽出
+                                    background_text = generated_body[background_start:problem_start].strip()
+                                    problem_text = generated_body[problem_start + len(problem_heading):solution_start].strip()
+                                    solution_text = generated_body[solution_start + len(solution_heading):].strip()
+                                    
+                                    st.session_state.refined_body_sections = {
+                                        "background": background_text,
+                                        "problem": problem_text,
+                                        "solution": solution_text
+                                    }
+                                else:
+                                    st.error("本文セクションの分割に失敗しました。生成された本文の形式が想定外です。")
+                                    st.session_state.refined_body_sections = {} # エラー時は空で初期化
+
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {e}")
+
+                    if st.session_state.generated_body:
+                        st.subheader("生成された本文")
+
+                        if st.session_state.refined_body_sections:
+                            # 背景セクション
+                            st.markdown(f"## {st.session_state.manual_headlines.background}")
+                            st.markdown(st.session_state.refined_body_sections["background"])
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                background_prompt = st.text_area("修正指示 (背景)", key="refine_body_prompt_background", height=70, placeholder="例：もっと具体的に")
+                            with col2:
+                                if st.button("修正", key="refine_body_button_background"):
+                                    with st.spinner("背景セクション修正中..."):
+                                        refined_section = body_generator.refine_body_section(
+                                            st.session_state.refined_body_sections["background"], 
+                                            background_prompt, 
+                                            "背景"
+                                        )
+                                        if refined_section:
+                                            st.session_state.refined_body_sections["background"] = refined_section.refined_text
+                                            st.rerun()
+
+                            # 課題セクション
+                            st.markdown(f"## {st.session_state.manual_headlines.problem}")
+                            st.markdown(st.session_state.refined_body_sections["problem"])
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                problem_prompt = st.text_area("修正指示 (課題)", key="refine_body_prompt_problem", height=70, placeholder="例：もっと具体的に")
+                            with col2:
+                                if st.button("修正", key="refine_body_button_problem"):
+                                    with st.spinner("課題セクション修正中..."):
+                                        refined_section = body_generator.refine_body_section(
+                                            st.session_state.refined_body_sections["problem"], 
+                                            problem_prompt, 
+                                            "課題"
+                                        )
+                                        if refined_section:
+                                            st.session_state.refined_body_sections["problem"] = refined_section.refined_text
+                                            st.rerun()
+
+                            # 解決策セクション
+                            st.markdown(f"## {st.session_state.manual_headlines.solution}")
+                            st.markdown(st.session_state.refined_body_sections["solution"])
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                solution_prompt = st.text_area("修正指示 (解決策)", key="refine_body_prompt_solution", height=70, placeholder="例：もっと具体的に")
+                            with col2:
+                                if st.button("修正", key="refine_body_button_solution"):
+                                    with st.spinner("解決策セクション修正中..."):
+                                        refined_section = body_generator.refine_body_section(
+                                            st.session_state.refined_body_sections["solution"], 
+                                            solution_prompt, 
+                                            "解決策"
+                                        )
+                                        if refined_section:
+                                            st.session_state.refined_body_sections["solution"] = refined_section.refined_text
+                                            st.rerun()
+
+                        else: # refined_body_sections がない場合（エラー発生時など）はプレーンテキストで全体を表示
+                            st.write(st.session_state.generated_body)
+
+
+                        # Step 6: Slack投稿フォーマット生成
+                        st.header("Step 6: Slack投稿フォーマット生成")
+
+                        slack_format_tab = st.tabs(["企画案レビュー"])
+
+                        with slack_format_tab[0]:
+                            st.subheader("企画案レビュー Slack投稿フォーマット")
+                            with st.expander("企画案レビュー Slack投稿フォーマット入力", expanded=True):
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    # 開催日を日付選択に変更
+                                    開催日 = st.date_input("開催日", key="plan_開催日")
+                                    st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')  # 月/日 形式で保存
+                                    st.session_state.seminar_集客人数 = st.text_input("集客人数", key="plan_集客人数")
+                                with col2:
+                                    st.session_state.seminar_主催企業 = st.text_input("主催企業", key="plan_主催企業")
+                                    # 初稿UP期限を日付選択に変更
+                                    初稿UP期限 = st.date_input("初稿UP期限", key="plan_初稿UP期限")
+                                    st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
+
+                            # 複数のURLに対応するための対応
+                            product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
+                            selected_pain_point = st.session_state.generated_pain_points[st.session_state.selected_pain_point_index]
+
+                            if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
+                                plan_format_text = generate_plan_review_format(
+                                    st.session_state.seminar_開催日,
+                                    st.session_state.seminar_主催企業,
+                                    st.session_state.seminar_集客人数,
+                                    st.session_state.seminar_初稿UP期限,
+                                    product_urls_for_slack,  # 複数URLをまとめたもの
+                                    st.session_state.selected_title_for_headline,
+                                    st.session_state.manual_headlines.background,
+                                    st.session_state.manual_headlines.problem,
+                                    st.session_state.manual_headlines.solution,
+                                    st.session_state.target_audience,
+                                    selected_pain_point,
+                                    st.session_state.strengths,
+                                    st.session_state.refined_body_sections.get("background", ""),
+                                    st.session_state.refined_body_sections.get("problem", ""),
+                                    st.session_state.refined_body_sections.get("solution", "")
+                                )
+                                st.subheader("生成された企画案レビュー Slack投稿フォーマット (Slackへコピペできます)")
+                                st.code(plan_format_text, language="text")
 
 if __name__ == "__main__":
     main()
