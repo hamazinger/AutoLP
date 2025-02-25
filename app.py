@@ -213,29 +213,33 @@ class TitleGenerator:
 }
 """
 
-    def generate_titles(self, context: str, target: str, prompt_template: str = None, product_url: str = None, file_content: str = None) -> List[Dict[str, str]]:
+    def generate_titles(self, context: str, target: str, prompt_template: str = None, product_urls: List[str] = None, file_contents: List[str] = None) -> List[Dict[str, str]]:
             additional_context = ""
-            if product_url:
-                content = self.url_extractor.extract_with_trafilatura(product_url)
-                if content and not content.error:
-                    additional_context += f"""
-    製品タイトル: {content.title}
-    製品説明: {content.description}
-    製品詳細: {content.main_content[:1000]}
-    """
-                else:
-                    st.warning(f"製品情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
+            
+            if product_urls:
+                for i, url in enumerate(product_urls, 1):
+                    if url:  # URLが空でない場合のみ処理
+                        content = self.url_extractor.extract_with_trafilatura(url)
+                        if content and not content.error:
+                            additional_context += f"""
+製品{i}タイトル: {content.title}
+製品{i}説明: {content.description}
+製品{i}詳細: {content.main_content[:1000]}
+"""
+                        else:
+                            st.warning(f"製品{i}情報の取得に失敗しました: {content.error if content else '不明なエラー'}")
 
-            if file_content:
-                additional_context += f"""
-    アップロードされたファイルの内容:
-    {file_content}
-    """
+            if file_contents:
+                for i, file_content in enumerate(file_contents, 1):
+                    additional_context += f"""
+アップロードされたファイル{i}の内容:
+{file_content}
+"""
 
             prompt = f"""
-    # 入力情報
-    {context}
-    """ + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
+# 入力情報
+{context}
+""" + (prompt_template or self.user_editable_prompt).format(target=target) + additional_context + self.fixed_output_instructions
 
             result_text = None
 
@@ -719,8 +723,12 @@ def init_session_state():
         st.session_state.manual_headlines = None
     if 'target_audience' not in st.session_state:
         st.session_state.target_audience = ""
-    if 'refined_body_sections' not in st.session_state: # 修正された本文セクションを保存するsession_state
+    if 'refined_body_sections' not in st.session_state: 
         st.session_state.refined_body_sections = {}
+    if 'product_urls' not in st.session_state:
+        st.session_state.product_urls = ["", "", ""]
+    if 'file_contents' not in st.session_state:
+        st.session_state.file_contents = []
 
     # セミナー開催情報用のsession_state（空の初期値）
     if 'seminar_開催日' not in st.session_state:
@@ -774,54 +782,80 @@ def main():
 
     st.header("Step 1: 基本情報入力")
 
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    # 基本情報入力 - メインカラムを2つに分割
+    col1, col2 = st.columns([1, 1])
+    
     with col1:
-        product_url = st.text_input("製品URL")
-        if product_url:
-            with st.spinner("URLからコンテンツを取得中..."):
-                extractor = URLContentExtractor()
-                content = extractor.extract_with_trafilatura(product_url)
-                if content and not content.error:
-                    st.success("製品情報を取得しました")
-                    with st.expander("取得した製品情報"):
-                        st.write("**タイトル:**", content.title)
-                        st.write("**説明:**", content.description)
-                        st.write("**詳細:**", content.main_content[:500] + "...")
-                else:
-                    st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
+        # 製品URL入力 - 最大3つ
+        st.subheader("製品URL (最大3つ)")
+        url_container = st.container()
+        
+        for i in range(3):
+            product_url = url_container.text_input(f"製品URL {i+1}", key=f"product_url_{i}", value=st.session_state.product_urls[i])
+            st.session_state.product_urls[i] = product_url
+            
+            if product_url:
+                with st.spinner(f"URL {i+1} からコンテンツを取得中..."):
+                    extractor = URLContentExtractor()
+                    content = extractor.extract_with_trafilatura(product_url)
+                    if content and not content.error:
+                        st.success(f"製品情報 {i+1} を取得しました")
+                        with st.expander(f"取得した製品情報 {i+1}"):
+                            st.write("**タイトル:**", content.title)
+                            st.write("**説明:**", content.description)
+                            st.write("**詳細:**", content.main_content[:300] + "...")
+                    elif product_url:  # URLが入力されているが、取得に失敗した場合
+                        st.error(f"コンテンツの取得に失敗しました: {content.error if content else '不明なエラー'}")
+    
     with col2:
-        pain_points = st.text_area("ペインポイント")
-    with col3:
+        # 右側のカラム - ペインポイント、カテゴリ、ターゲット像
+        pain_points = st.text_area("ペインポイント", height=100)
+        
         category = st.selectbox(
             "カテゴリ",
             options=st.session_state.available_categories
         )
         st.session_state.selected_category = category
-    with col4:
-        target_audience = st.text_area("ターゲット像", height=80)
+        
+        target_audience = st.text_area("ターゲット像", height=100)
         st.session_state.target_audience = target_audience
 
-    uploaded_file = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'])
-    file_content = ""
-    if uploaded_file is not None:
-        try:
-            if uploaded_file.type == "text/plain":
-                file_content = uploaded_file.getvalue().decode('utf-8')
-            elif uploaded_file.type == "application/pdf":
-                reader = PdfReader(uploaded_file)
+    # ファイルアップロード部分 - 最大5ファイル
+    st.subheader("ファイル (最大5つまでアップロード可能)")
+    uploaded_files = st.file_uploader("ファイルをアップロード", type=['txt', 'pdf', 'docx'], accept_multiple_files=True)
+    
+    # ファイル内容を保存する配列をリセット
+    file_contents = []
+    
+    if uploaded_files:
+        for i, uploaded_file in enumerate(uploaded_files[:5]):  # 最大5ファイルまで処理
+            try:
                 file_content = ""
-                for page in reader.pages:
-                    file_content += page.extract_text()
-            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                document = Document(uploaded_file)
-                file_content = "\n".join([para.text for para in document.paragraphs])
-            else:
-                st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
-            st.success("ファイルを正常に読み込みました")
-            with st.expander("アップロードされたファイルの内容"):
-                st.write(file_content)
-        except Exception as e:
-            st.error(f"ファイルの読み込みでエラーが発生しました: {e}")
+                if uploaded_file.type == "text/plain":
+                    file_content = uploaded_file.getvalue().decode('utf-8')
+                elif uploaded_file.type == "application/pdf":
+                    reader = PdfReader(uploaded_file)
+                    file_content = ""
+                    for page in reader.pages:
+                        file_content += page.extract_text()
+                elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    document = Document(uploaded_file)
+                    file_content = "\n".join([para.text for para in document.paragraphs])
+                else:
+                    st.error(f"未対応のファイルタイプです: {uploaded_file.type}")
+                    continue
+                
+                file_contents.append(file_content)
+                st.success(f"ファイル {i+1}: {uploaded_file.name} を正常に読み込みました")
+                
+                with st.expander(f"ファイル {i+1}: {uploaded_file.name} の内容"):
+                    st.text(file_content[:1000] + ("..." if len(file_content) > 1000 else ""))
+                    
+            except Exception as e:
+                st.error(f"ファイル {uploaded_file.name} の読み込みでエラーが発生しました: {e}")
+    
+    # ファイル内容をセッションに保存
+    st.session_state.file_contents = file_contents
 
     with st.expander("タイトル生成プロンプトの編集", expanded=False):
         st.session_state.title_prompt = st.text_area(
@@ -837,12 +871,15 @@ def main():
 """
         with st.spinner("タイトルを生成中..."):
             try:
+                # 空でないURLのみを渡す
+                valid_urls = [url for url in st.session_state.product_urls if url]
+                
                 titles = title_generator.generate_titles(
                     context,
                     st.session_state.target_audience,
                     st.session_state.title_prompt,
-                    product_url,
-                    file_content
+                    valid_urls,
+                    st.session_state.file_contents
                 )
                 st.session_state.generated_titles = []
                 for title in titles:
@@ -1106,13 +1143,16 @@ def main():
                         初稿UP期限 = st.date_input("初稿UP期限", key="pain_初稿UP期限")
                         st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
 
+                # 複数のURLに対応するための対応
+                product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
+
                 if st.button("ペイン案レビュー Slack投稿フォーマット生成", key="generate_slack_pain_format"):
                     pain_format_text = generate_pain_review_format(
                         st.session_state.seminar_開催日,
                         st.session_state.seminar_主催企業,
                         st.session_state.seminar_集客人数,
                         st.session_state.seminar_初稿UP期限,
-                        product_url,
+                        product_urls_for_slack,
                         st.session_state.target_audience,
                         pain_points
                     )
@@ -1134,13 +1174,16 @@ def main():
                         初稿UP期限 = st.date_input("初稿UP期限", key="plan_初稿UP期限")
                         st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')  # 月/日(曜日) 形式で保存
 
+                # 複数のURLに対応するための対応
+                product_urls_for_slack = "\n".join([url for url in st.session_state.product_urls if url])
+
                 if st.button("企画案レビュー Slack投稿フォーマット生成", key="generate_slack_plan_format"):
                     plan_format_text = generate_plan_review_format(
                         st.session_state.seminar_開催日,
                         st.session_state.seminar_主催企業,
                         st.session_state.seminar_集客人数,
                         st.session_state.seminar_初稿UP期限,
-                        product_url,  # 製品URLを使用
+                        product_urls_for_slack,  # 複数URLをまとめたもの
                         st.session_state.selected_title_for_headline,
                         st.session_state.manual_headlines.background,
                         st.session_state.manual_headlines.problem,
