@@ -484,14 +484,16 @@ class HeadlineGenerator:
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.fixed_prompt_part = """
-「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは**マークダウン形式**で出力してください。
-- 各見出しは、行頭に `#` のみつけてください。**見出しテキストは `#` に続けてください。**
-- それぞれの見出しは簡潔な文章としてください。 」
+「『{title}』というタイトルのイベントを企画しており、その告知文を作成します。 告知文を作成する前に、以下の内容でその見出しを３つ作成してください。それぞれの見出しは簡潔な文章としてください。
+# 出力形式
+- 見出しはマークダウン形式（#記号）を使わず、プレーンテキストとして出力してください。
+- それぞれの見出しは30文字程度の簡潔な文章としてください。
+」
 """
         self.user_editable_prompt = """
-見出し1：# このセミナーを開催する、社会や企業の背景
-見出し2：# このセミナーで訴求したい、課題、問題、悩み、不安
-見出し3：# 上記課題の解決の方向性
+見出し1：このセミナーを開催する、社会や企業の背景
+見出し2：このセミナーで訴求したい、課題、問題、悩み、不安
+見出し3：上記課題の解決の方向性
 - **ターゲット像を意識する**
 
 # ターゲット像
@@ -929,6 +931,22 @@ def display_evaluation_details(title: str, evaluator: SeminarTitleEvaluator):
             )
         st.markdown(f'<p>{highlighted_title}</p>', unsafe_allow_html=True)
 
+# 手動入力ペインポイントの解析
+def parse_pain_point_input(pain_point_text: str) -> PainPoint:
+    # 入力テキストから見出しと詳細を抽出
+    lines = pain_point_text.strip().split("\n", 1)
+    
+    if len(lines) >= 2:
+        headline = lines[0].strip()
+        description = lines[1].strip()
+    else:
+        # 区切りがない場合は最初の30文字を見出しとして使用
+        text = lines[0].strip()
+        headline = text[:30] + ("..." if len(text) > 30 else "")
+        description = text
+    
+    return PainPoint(headline=headline, description=description)
+
 def init_session_state():
     if 'generated_titles' not in st.session_state:
         st.session_state.generated_titles = []
@@ -1168,17 +1186,23 @@ def main():
                                 st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
-        # 手動ペインポイント追加
+        # 手動ペインポイント追加（統合版）
         st.subheader("手動ペインポイント追加")
         col1, col2 = st.columns([4, 1])
         
         with col1:
-            manual_headline = st.text_input("ペインポイント見出し", key="manual_pain_point_headline")
-            manual_description = st.text_area("ペインポイント詳細", key="manual_pain_point_description")
+            # 入力欄を統合
+            manual_pain_point_text = st.text_area(
+                "ペインポイント (最初の行が見出し、残りが詳細になります)", 
+                key="manual_pain_point_text", 
+                height=150,
+                placeholder="例：\n不確実な市場環境で経営判断を迫られるCXO\n\n市場の変化が速く、競合の動きも読みにくい中で、限られた情報から経営判断を行わなければならないCXOやマネジメント層が増えています。多くの企業がDXや新規事業に取り組む中、間違った判断は大きなリスクとなります。"
+            )
         
         with col2:
-            if st.button("追加", key="add_manual_pain_point") and manual_headline and manual_description:
-                new_pain_point = PainPoint(headline=manual_headline, description=manual_description)
+            if st.button("追加", key="add_manual_pain_point") and manual_pain_point_text:
+                # 入力テキストを解析してペインポイントを作成
+                new_pain_point = parse_pain_point_input(manual_pain_point_text)
                 st.session_state.generated_pain_points.append(new_pain_point)
                 st.session_state.selected_pain_point_index = len(st.session_state.generated_pain_points) - 1
                 st.rerun()
