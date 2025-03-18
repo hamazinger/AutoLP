@@ -961,13 +961,33 @@ def parse_mid_review_format(mid_review_text: str) -> Optional[Dict[str, str]]:
         pain_point_headline = ""
         pain_point_description = ""
         
+        # セミナー開催情報フラグ
+        reading_seminar_info = False
+        
         for line in lines:
             line = line.strip()
             if not line:
                 continue
                 
+            # セミナー開催情報の処理
+            if "＜対象セミナー＞" in line:
+                reading_seminar_info = True
+                continue
+            
+            if reading_seminar_info and line.startswith("・"):
+                # 開催日、主催企業、集客人数、初稿UP期限を抽出
+                if "開催日：" in line:
+                    result["seminar_開催日"] = line.split("開催日：")[1].strip()
+                elif "主催企業：" in line:
+                    result["seminar_主催企業"] = line.split("主催企業：")[1].strip()
+                elif "集客人数：" in line:
+                    result["seminar_集客人数"] = line.split("集客人数：")[1].strip()
+                elif "初稿UP期限：" in line:
+                    result["seminar_初稿UP期限"] = line.split("初稿UP期限：")[1].strip()
+                
             # セクション判定
             if "＜ターゲット＞" in line:
+                reading_seminar_info = False
                 current_section = "target"
                 continue
             elif "＜強み・差別化ポイント＞" in line:
@@ -1132,6 +1152,13 @@ def main():
             target_audience = st.text_area("ターゲット像", height=100)
             strengths = st.text_area("強み・差別化ポイント", height=100)
             
+            # 製品URL入力欄を追加
+            st.subheader("製品URL (最大3つ)")
+            product_urls = []
+            for i in range(3):
+                product_url = st.text_input(f"製品URL {i+1}", key=f"resume_product_url_{i}")
+                product_urls.append(product_url)
+            
             submit_button = st.form_submit_button("タイトル生成へ進む")
             
             if submit_button and pain_point_text:
@@ -1143,6 +1170,9 @@ def main():
                 st.session_state.strengths = strengths
                 st.session_state.generated_pain_points = [pain_point]
                 st.session_state.selected_pain_point_index = 0
+                
+                # 製品URLを保存
+                st.session_state.product_urls = product_urls
                 
                 # モードをリセット
                 st.session_state.resume_mode = None
@@ -1161,19 +1191,7 @@ def main():
                 placeholder="【ペインポイント・タイトル・見出し案の確認依頼】\n\n下記、ご確認をお願いします。\n\n＜対象セミナー＞\n・開催日：...\n..."
             )
             
-            # 補足情報入力
-            st.subheader("補足情報")
-            col1, col2 = st.columns(2)
-            with col1:
-                開催日 = st.date_input("開催日")
-                st.session_state.seminar_開催日 = 開催日.strftime('%-m/%-d')
-                集客人数 = st.text_input("集客人数")
-                st.session_state.seminar_集客人数 = 集客人数
-            with col2:
-                主催企業 = st.text_input("主催企業")
-                st.session_state.seminar_主催企業 = 主催企業
-                初稿UP期限 = st.date_input("初稿UP期限")
-                st.session_state.seminar_初稿UP期限 = 初稿UP期限.strftime('%-m/%-d(%a)')
+            # 補足情報欄を削除（中間レビューのフォーマットから情報を取得するため）
             
             submit_button = st.form_submit_button("本文生成へ進む")
             
@@ -1184,6 +1202,12 @@ def main():
                     # 必要な状態を設定
                     st.session_state.target_audience = result.get("target", "")
                     st.session_state.strengths = result.get("strengths", "")
+                    
+                    # セミナー開催情報を設定
+                    st.session_state.seminar_開催日 = result.get("seminar_開催日", "")
+                    st.session_state.seminar_主催企業 = result.get("seminar_主催企業", "")
+                    st.session_state.seminar_集客人数 = result.get("seminar_集客人数", "")
+                    st.session_state.seminar_初稿UP期限 = result.get("seminar_初稿UP期限", "")
                     
                     # ペインポイント設定
                     pain_point = PainPoint(
