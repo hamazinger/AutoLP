@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any  # Anyを追加
 from datetime import datetime
 import json
 import requests
